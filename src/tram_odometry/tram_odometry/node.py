@@ -6,11 +6,13 @@
 """
 import functools
 import math
+import os
 import signal
 import time
 from dataclasses import fields
 
 import rclpy
+from ament_index_python.packages import get_package_share_directory
 from diagnostic_msgs.msg import DiagnosticArray, DiagnosticStatus, KeyValue
 from geometry_msgs.msg import AccelStamped, TwistStamped
 from nav_msgs.msg import Odometry
@@ -93,6 +95,12 @@ PARAM_DESCRIPTIONS = {
     'wheel_time_alignment':
         'Пересчитывать измерения колёс по ускорению на метку результата (синхронизация по времени)',
     'speed_time_offset': 'Скорость результата относится к моменту (метка − это значение), с',
+    'route_map_file':
+        'Карта маршрута (.csv); пусто — карта из пакета (config/route_map.csv), none — без карты',
+    'reference_antenna':
+        'Приёмник GNSS для начала координат и привязки к карте: master или rover',
+    'gnss_correction': 'Поправлять положение на карте по редким точкам GNSS в середине маршрута',
+    'gnss_correction_interval': 'Коррекция по GNSS не чаще, чем раз в столько секунд',
 }
 
 
@@ -121,6 +129,11 @@ class TramOdometryNode(Node):
 
         pre_params = self._declare_dataclass(PreprocessingParams)
         core_params = self._declare_dataclass(CoreParams)
+        if not core_params.route_map_file:
+            core_params.route_map_file = os.path.join(
+                get_package_share_directory('tram_odometry'), 'config', 'route_map.csv')
+        elif core_params.route_map_file.lower() == 'none':
+            core_params.route_map_file = ''
         self._frame_id = self._declare('frame_id', 'map', 'Система координат положения')
         self._child_frame_id = self._declare(
             'child_frame_id', 'base_link', 'Система координат трамвая')
@@ -150,16 +163,17 @@ class TramOdometryNode(Node):
             lambda msg: self._on_wheel('rear', msg), INPUT_QOS)
         self.create_subscription(
             DriverControllerCommand, INPUT_TOPICS['driver_cmd'], self._on_driver_cmd, INPUT_QOS)
+        # GNSS: начальная выставка и коррекция по редким точкам (разрешено организаторами)
+        for source in ('master', 'rover'):
+            self.create_subscription(
+                NavSatFix, INPUT_TOPICS[f'gnss_fix_{source}'],
+                lambda msg, s=source: self._on_gnss_fix(s, msg), INPUT_QOS)
+            self.create_subscription(
+                TwistStamped, INPUT_TOPICS[f'gnss_vel_{source}'],
+                lambda msg, s=source: self._on_gnss_vel(s, msg), INPUT_QOS)
         if self._core.estimator.requires_gnss:
             self.get_logger().warn(
-                'ТЕСТОВЫЙ РЕЖИМ: оценщик берёт данные из GNSS — для сдачи решения запрещено!')
-            for source in ('master', 'rover'):
-                self.create_subscription(
-                    NavSatFix, INPUT_TOPICS[f'gnss_fix_{source}'],
-                    lambda msg, s=source: self._on_gnss_fix(s, msg), INPUT_QOS)
-                self.create_subscription(
-                    TwistStamped, INPUT_TOPICS[f'gnss_vel_{source}'],
-                    lambda msg, s=source: self._on_gnss_vel(s, msg), INPUT_QOS)
+                'ТЕСТОВЫЙ РЕЖИМ: оценщик берёт скорость и положение из GNSS — для сдачи запрещено!')
 
         self._proc_times = []           # время обработки «вход → публикация», с
         self._diag_prev = None          # (время bag, принято по входам, опубликовано)
@@ -313,6 +327,19 @@ class TramOdometryNode(Node):
                 'скольжение': '-' if last.slip_ratio is None else f'{last.slip_ratio:.3f}',
             })
         array.status.append(self._status('оценщик', level, message, values))
+
+        anchor = core.anchor
+        level = DiagnosticStatus.OK if anchor.on_route else DiagnosticStatus.WARN
+        values = {
+            'состояние': anchor.state, 'опорный приёмник': anchor.reference,
+            'курс': '-' if anchor.heading is None else f'{math.degrees(anchor.heading):.1f}°',
+            'курс по': anchor.heading_source,
+            'до карты при выставке, м': '-' if anchor.init_distance is None else f'{anchor.init_distance:.2f}',
+            'коррекций GNSS': anchor.corrections, 'отклонено точек GNSS': anchor.rejected,
+        }
+        if anchor.on_route and last is not None:
+            values['σ вдоль пути, м'] = f'{math.sqrt(anchor.along_var(last.distance)):.2f}'
+        array.status.append(self._status('выставка по GNSS', level, anchor.state, values))
 
         out_rate = (core.published - prev[2]) / span if span > 0.0 else 0.0
         times = self._proc_times

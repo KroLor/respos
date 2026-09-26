@@ -11,6 +11,9 @@
 - до первого измерения колёс скорость неизвестна: публикация ждёт его, но не дольше
   wheel_wait_at_start (при неработающих датчиках колёс она всё равно начнётся);
 - смена отсчёта времени во входах назад — метки результатов начинаются заново.
+
+Положение: до выставки по GNSS — путь по прямой от начала координат; после выставки
+(gnss_anchor.py) — движение по кольцу карты маршрута с коррекцией по редким точкам GNSS.
 """
 import math
 import time
@@ -18,9 +21,11 @@ from dataclasses import dataclass
 from typing import Callable, List, Optional
 
 from tram_odometry.estimators import ESTIMATORS, Estimate, create_estimator
+from tram_odometry.gnss_anchor import GnssAnchor
 from tram_odometry.preprocessing import (VEHICLE_WHEEL_SCALES, InputPreprocessor,
                                          PreprocessingParams)
 from tram_odometry.projection import UNKNOWN_YAW_VARIANCE, ProjectedPose, StraightLineProjector
+from tram_odometry.route_map import load_route_csv
 from tram_odometry.supervisor import SupervisedEstimator
 
 DEFAULT_ESTIMATOR = 'wheel_baseline'
@@ -51,6 +56,10 @@ class CoreParams:
     wheel_decay_tau: float = 5.0            # с: затем снижение с этой постоянной времени
     wheel_time_alignment: bool = True       # пересчёт измерений колёс на метку результата
     speed_time_offset: float = 0.0          # с: скорость результата относится к (метка − это)
+    route_map_file: str = ''                # карта маршрута (.csv); '' — без карты
+    reference_antenna: str = 'master'       # приёмник GNSS для начала координат и привязки
+    gnss_correction: bool = True            # коррекция положения по редким точкам GNSS
+    gnss_correction_interval: float = 1.0   # с: коррекция не чаще
     wheel_wait_at_start: float = 1.0        # с: ожидание первого измерения колёс (не параметр ROS)
 
 
@@ -103,9 +112,9 @@ class OdometryCore:
         self._log_wheel_scale()
         self.estimator = self._create_supervisor()
         self.projector = StraightLineProjector()
-        self.inputs = list(VEHICLE_INPUTS)
-        if self.estimator.requires_gnss:
-            self.inputs += GNSS_INPUTS
+        self.anchor = GnssAnchor(self._load_route(), self.p.reference_antenna,
+                                 self.p.gnss_correction, self.p.gnss_correction_interval, self._log)
+        self.inputs = list(VEHICLE_INPUTS) + list(GNSS_INPUTS)
         self.arrival = {}               # вход → время (clock) последнего принятого сообщения
         self.last_output = None
         self.published = 0
@@ -126,6 +135,18 @@ class OdometryCore:
         else:
             self._log('warn', f'Трамвай "{pre.p.vehicle_id}" неизвестен: масштаб колёс номинальный '
                               f'1/3,6; откалиброваны: {", ".join(VEHICLE_WHEEL_SCALES)}')
+
+    def _load_route(self):
+        if not self.p.route_map_file:
+            self._log('warn', 'Карта маршрута не задана: положение — по прямой от точки выставки')
+            return None
+        try:
+            points = load_route_csv(self.p.route_map_file)
+        except (OSError, ValueError) as error:
+            self._log('error', f'Не удалось загрузить карту {self.p.route_map_file}: {error!r}')
+            return None
+        self._log('info', f'Карта маршрута: {len(points)} точек ({self.p.route_map_file})')
+        return points
 
     def _create_supervisor(self) -> SupervisedEstimator:
         """Основной оценщик + запасной wheel_baseline; ошибка создания не роняет ядро."""
@@ -185,9 +206,22 @@ class OdometryCore:
     def on_gnss_fix(self, source: str, stamp: float, status: int,
                     latitude: float, longitude: float, altitude: float) -> None:
         sample = self.pre.gnss_fix(source, stamp, status, latitude, longitude, altitude)
-        if sample is not None:
-            self.arrival[f'gnss_fix_{source}'] = self._clock()
-            self.estimator.on_gnss_fix(source, sample.stamp, *sample.value)
+        if sample is None:
+            return
+        self.arrival[f'gnss_fix_{source}'] = self._clock()
+        lat, lon, alt, fix_status = sample.value
+        self.estimator.on_gnss_fix(source, sample.stamp, lat, lon, alt)
+        self.anchor.on_fix(source, sample.stamp, lat, lon, alt, fix_status,
+                           self._distance_at(sample.stamp))
+        if self.anchor.projector is not None:
+            self.projector = self.anchor.projector
+
+    def _distance_at(self, stamp: float) -> float:
+        """Пройденный путь на момент stamp (по последнему результату и его скорости)."""
+        last = self.last_output
+        if last is None:
+            return 0.0
+        return max(0.0, last.estimate.distance + last.estimate.velocity * (stamp - last.stamp))
 
     def on_gnss_vel(self, source: str, stamp: float, vx: float, vy: float, vz: float) -> None:
         sample = self.pre.gnss_vel(source, stamp, vx, vy, vz)
@@ -226,9 +260,12 @@ class OdometryCore:
                 yaw_var=ESTIMATOR_YAW_VARIANCE if yaw_known else UNKNOWN_YAW_VARIANCE)
         else:
             pose = self.projector.project(estimate.distance)
+        # Вдоль пути: после привязки к карте неопределённость считается от последней привязки
+        along_var = (self.anchor.along_var(estimate.distance)
+                     if self.anchor.on_route and estimate.position is None else estimate.distance_var)
         output = Output(
             stamp=stamp, estimate=estimate, x=pose.x, y=pose.y, z=pose.z, yaw=pose.yaw,
-            pose_covariance=pose_covariance(estimate.distance_var, pose),
+            pose_covariance=pose_covariance(along_var, pose),
             # Скорость — продольная, в системе трамвая: вбок и вверх она ~0, крен и тангаж ~0
             twist_covariance=diagonal_covariance([
                 estimate.velocity_var, CONSTRAINED_VARIANCE, CONSTRAINED_VARIANCE,

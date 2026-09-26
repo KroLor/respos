@@ -166,7 +166,7 @@ class InputPreprocessor:
             return self._reject(state, 'value_out_of_range')
         if self._check_stamp(state, stamp) == STAMP_REJECTED:
             return None
-        state.last_value = (latitude, longitude, altitude)
+        state.last_value = (latitude, longitude, altitude, int(status))
         return Sample(stamp, state.last_value)
 
     def gnss_vel(self, source: str, stamp: float, vx: float, vy: float, vz: float) -> Optional[Sample]:

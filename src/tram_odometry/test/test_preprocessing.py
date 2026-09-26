@@ -105,6 +105,6 @@ def test_gnss_validation():
     assert pre.gnss_fix('master', 1.0, -1, 55.7, 37.6, 150.0) is None       # нет решения
     assert pre.gnss_fix('master', 1.1, 2, math.nan, 37.6, 150.0) is None
     assert pre.gnss_fix('master', 1.2, 2, 0.0, 0.0, 0.0) is None
-    assert pre.gnss_fix('master', 1.3, 2, 55.7, 37.6, 150.0).value == (55.7, 37.6, 150.0)
+    assert pre.gnss_fix('master', 1.3, 2, 55.7, 37.6, 150.0).value == (55.7, 37.6, 150.0, 2)
     assert pre.gnss_vel('master', 1.3, 1.0, 2.0, 0.0) is not None
     assert pre.gnss_vel('master', 1.4, 500.0, 0.0, 0.0) is None

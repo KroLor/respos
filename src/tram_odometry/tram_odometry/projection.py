@@ -32,20 +32,25 @@ CROSS_TRACK_SIGMA0 = 1.0
 
 
 class StraightLineProjector:
-    """Путь по прямой из точки origin с курсом yaw (рад, 0 — вдоль оси x)."""
+    """Путь по прямой из точки origin с курсом yaw (рад, 0 — вдоль оси x).
 
-    def __init__(self, origin=(0.0, 0.0, 0.0), yaw: float = 0.0) -> None:
+    distance0 — пройденный путь в момент, когда трамвай был в origin.
+    """
+
+    def __init__(self, origin=(0.0, 0.0, 0.0), yaw: float = 0.0, distance0: float = 0.0) -> None:
         self.origin = origin
         self.yaw = yaw
+        self.distance0 = distance0
 
     def project(self, distance: float) -> ProjectedPose:
         x0, y0, z0 = self.origin
+        travelled = distance - self.distance0
         # Курс неизвестен и путь может поворачивать: поперёк пути трамвай может оказаться
         # в пределах пройденного расстояния
-        cross_sigma = CROSS_TRACK_SIGMA0 + abs(distance)
+        cross_sigma = CROSS_TRACK_SIGMA0 + abs(travelled)
         return ProjectedPose(
-            x=x0 + distance * math.cos(self.yaw),
-            y=y0 + distance * math.sin(self.yaw),
+            x=x0 + travelled * math.cos(self.yaw),
+            y=y0 + travelled * math.sin(self.yaw),
             z=z0,
             yaw=self.yaw,
             cross_var=cross_sigma ** 2,
