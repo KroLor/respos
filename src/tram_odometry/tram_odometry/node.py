@@ -344,6 +344,8 @@ class TramOdometryNode(Node):
             'курс': '-' if anchor.heading is None else f'{math.degrees(anchor.heading):.1f}°',
             'курс по': anchor.heading_source,
             'до карты при выставке, м': '-' if anchor.init_distance is None else f'{anchor.init_distance:.2f}',
+            'GNSS от места на карте при выставке, м':
+                '-' if anchor.init_offset is None else f'{anchor.init_offset:.2f}',
             'коррекций GNSS': anchor.corrections, 'отклонено точек GNSS': anchor.rejected,
             'привязок к остановкам': anchor.stop_updates,
         }

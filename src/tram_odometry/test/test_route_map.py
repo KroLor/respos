@@ -136,6 +136,34 @@ def test_stop_correction():
     assert abs(anchor.route.wrap(anchor.u0 + 692.0) - 800.0) < 3.0 and anchor.u0 > u0
 
 
+def test_short_baseline_on_curve_still_gives_heading():
+    # Сочленённый трамвай на кривой: хорда между антеннами короче базы 12,4 м
+    anchor = GnssAnchor(test_ring())
+    for k in range(3):
+        fix(anchor, 'master', 0.1 * k, 600.0, 2.4)
+        fix(anchor, 'rover', 0.1 * k + 0.01, 600.0 - 10.5, 2.4)
+    assert anchor.heading_source == 'две антенны' and abs(anchor.u0 - 1405.0) < 1.0
+
+
+def test_start_off_the_map_is_honest_in_covariance():
+    # Трамвай стоит на пути, которого нет на карте: в 4 м от пути «туда» (как параллельный
+    # путь у конечной). Положение публикуется на карте — ковариация должна покрывать 4 м.
+    lat, lon, _ = geodetic(800.0, 0.0)
+    anchor = GnssAnchor(test_ring(), correction_interval=0.0, stops=[(lat, lon, 0.0, 1.0)])
+    for k in range(3):
+        fix(anchor, 'master', 0.1 * k, 500.0, -4.0)
+        fix(anchor, 'rover', 0.1 * k + 0.01, 512.4, -4.0)
+    assert anchor.on_route and abs(anchor.init_offset - 4.0) < 0.1
+    pose = anchor.projector.project(0.0)
+    assert pose.cross_var >= 15.9 and anchor.along_var(0.0) >= 15.9
+    # Точка GNSS в стороне от карты не делает место на кольце точным
+    fix(anchor, 'master', 0.5, 500.0, -4.0)
+    assert anchor.along_var(0.0) >= 15.9
+    # Привязка к остановке (на пути карты) снимает добавку поперёк пути
+    anchor.on_standstill(300.0)
+    assert anchor.stop_updates == 1 and anchor.projector.project(300.0).cross_var < 0.3
+
+
 def test_without_map_straight_line_from_fix_along_heading():
     anchor = GnssAnchor(None)
     fix(anchor, 'master', 0.0, 0.0, 0.0)

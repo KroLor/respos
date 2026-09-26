@@ -24,7 +24,9 @@ from tram_odometry.route_map import LocalRoute
 
 INIT_WAIT = 1.0                 # с: ждать точку опорного приёмника / курс по двум антеннам
 BASELINE_LENGTH = 12.4          # м: расстояние master → rover (калибровка по данным)
-BASELINE_TOLERANCE = 1.5        # м: допуск на длину базы
+BASELINE_TOLERANCE = 1.5        # м: допуск на длину базы вверх
+BASELINE_MIN_LENGTH = 10.0      # м: вниз — трамвай сочленённый, на кривой кольца хорда между
+                                #   антеннами короче (в данных до 10,5 м, курс при этом верен до ~20°)
 BASELINE_HEADING_OFFSET = math.radians(-0.2)   # курс = направление master→rover + это
 PAIR_TOLERANCE = 0.1            # с: точки двух антенн считаются одновременными
 PAIR_HISTORY = 30               # точек: история каждой антенны для поиска пары (потоки сдвинуты до ~0,5 с)
@@ -50,13 +52,16 @@ STOP_MAX_INNOVATION = 20.0      # м: поправка по остановке �
 class RouteProjector:
     """Движение по кольцу карты: u = u₀ + пройденный путь."""
 
-    def __init__(self, route: LocalRoute, u0: float) -> None:
+    def __init__(self, route: LocalRoute, u0: float, cross_extra_var: float = 0.0) -> None:
         self.route = route
         self.u0 = u0
+        # Добавка поперёк пути: трамвай мог стоять на пути, которого нет на карте (параллельный
+        # путь у конечной, ~5 м сбоку) — пока привязка не подтвердит, что он на пути карты
+        self.cross_extra_var = cross_extra_var
 
     def project(self, distance: float) -> ProjectedPose:
         x, y, z, yaw = self.route.pose(self.u0 + distance)
-        return ProjectedPose(x=x, y=y, z=z, yaw=yaw, cross_var=MAP_CROSS_SIGMA ** 2,
+        return ProjectedPose(x=x, y=y, z=z, yaw=yaw, cross_var=MAP_CROSS_SIGMA ** 2 + self.cross_extra_var,
                              z_var=MAP_Z_SIGMA ** 2, yaw_var=MAP_YAW_SIGMA ** 2)
 
 
@@ -83,6 +88,7 @@ class GnssAnchor:
         self.heading_source = '-'
         self.u0 = None
         self.init_distance = None       # расстояние до карты при выставке, м
+        self.init_offset = None         # расстояние от точки GNSS до выставленного места на карте, м
         self.corrections = 0
         self.rejected = 0
         self._anchor_var = 0.0          # дисперсия u₀ после последней привязки, м²
@@ -137,7 +143,7 @@ class GnssAnchor:
         if other is not None and abs(other[0] - stamp) <= PAIR_TOLERANCE:
             (mx, my), (rx, ry) = (((east, north), other[1:]) if source == 'master'
                                   else (other[1:], (east, north)))
-            if abs(math.hypot(rx - mx, ry - my) - BASELINE_LENGTH) <= BASELINE_TOLERANCE:
+            if BASELINE_MIN_LENGTH <= math.hypot(rx - mx, ry - my) <= BASELINE_LENGTH + BASELINE_TOLERANCE:
                 self.heading = math.atan2(ry - my, rx - mx) + BASELINE_HEADING_OFFSET
                 self.heading_source = 'две антенны'
         self._history[source].append((stamp, east, north))
@@ -171,8 +177,12 @@ class GnssAnchor:
         if match is not None and match[1] <= MAX_INIT_DISTANCE:
             self.u0 = self.route.wrap(match[0] - distance)
             self.init_distance = match[1]
-            self.projector = RouteProjector(self.route, self.u0)
-            self._anchor_var, self._anchor_s = MAP_CROSS_SIGMA ** 2 + match[1] ** 2, distance
+            # Начальная ошибка — расстояние от точки GNSS до места на карте, которое будет
+            # опубликовано (при выставке лучом оно больше, чем match[1] у точки попадания луча)
+            px, py = self.route.pose(match[0])[:2]
+            self.init_offset = math.hypot(east - px, north - py)
+            self.projector = RouteProjector(self.route, self.u0, self.init_offset ** 2)
+            self._anchor_var, self._anchor_s = MAP_CROSS_SIGMA ** 2 + self.init_offset ** 2, distance
             self.state = 'по карте'
             self._log('info', f'Выставка по карте: u = {match[0]:.1f} м из {self.route.length:.0f}, '
                               f'до карты {match[1]:.2f} м, курс: {self.heading_source}')
@@ -204,6 +214,7 @@ class GnssAnchor:
         gain = prior_var / (prior_var + stop_var)
         self.u0 = self.route.wrap(self.u0 + gain * innovation)
         self.projector.u0 = self.u0
+        self.projector.cross_extra_var = 0.0        # у платформы — на пути карты
         self._anchor_var, self._anchor_s = (1.0 - gain) * prior_var, distance
         self.stop_updates += 1
 
@@ -220,13 +231,17 @@ class GnssAnchor:
             self.rejected += 1
             return
         innovation = route.delta(match[0], u_pred)
-        gnss_var = (GNSS_SIGMA_RTK if status == 2 else GNSS_SIGMA) ** 2
+        # Точка в стороне от линии карты (соседний путь) задаёт место на кольце неточно
+        gnss_var = (GNSS_SIGMA_RTK if status == 2 else GNSS_SIGMA) ** 2 + match[1] ** 2
         if abs(innovation) > 5.0 * math.sqrt(prior_var + gnss_var) and abs(innovation) > 10.0:
             self.rejected += 1
             return
         gain = prior_var / (prior_var + gnss_var)
         self.u0 = route.wrap(self.u0 + gain * innovation)
         self.projector.u0 = self.u0
-        self._anchor_var, self._anchor_s = (1.0 - gain) * prior_var, distance
+        self.projector.cross_extra_var = match[1] ** 2
+        # Смещение точки от линии карты систематическое (соседний путь): повторные точки
+        # не делают место на кольце точнее него
+        self._anchor_var, self._anchor_s = max((1.0 - gain) * prior_var, match[1] ** 2), distance
         self._last_correction = stamp
         self.corrections += 1
