@@ -49,6 +49,8 @@ class CoreParams:
     bogie_mismatch_max_duration: float = 3.0  # с: дольше — отказ датчика
     wheel_hold_max: float = 2.0             # с: удержание скорости без данных колёс
     wheel_decay_tau: float = 5.0            # с: затем снижение с этой постоянной времени
+    wheel_time_alignment: bool = True       # пересчёт измерений колёс на метку результата
+    speed_time_offset: float = 0.0          # с: скорость результата относится к (метка − это)
     wheel_wait_at_start: float = 1.0        # с: ожидание первого измерения колёс (не параметр ROS)
 
 
@@ -136,6 +138,8 @@ class OdometryCore:
             'bogie_mismatch_max_duration': self.p.bogie_mismatch_max_duration,
             'wheel_hold_max': self.p.wheel_hold_max,
             'wheel_decay_tau': self.p.wheel_decay_tau,
+            'wheel_time_alignment': self.p.wheel_time_alignment,
+            'speed_time_offset': self.p.speed_time_offset,
         }
         name = self.p.estimator
         if name not in ESTIMATORS:

@@ -76,6 +76,34 @@ def test_wheel_baseline_slip_ratio_sign_and_scale():
     assert standing.estimate(1.0).slip_ratio == 0.0
 
 
+def test_wheel_baseline_time_alignment_removes_lag():
+    """Разгон 1 м/с², колёса каждые 0,1 с, оценка — через 0,05 с после измерения (как метка контроллера)."""
+    results = {}
+    for aligned in (False, True):
+        estimator = create_estimator('wheel_baseline', {'wheel_time_alignment': aligned})
+        for i in range(60):
+            t = 1.0 + 0.1 * i
+            estimator.on_wheel('front', t, t)
+            estimator.on_wheel('rear', t, t)
+            result = estimator.estimate(t + 0.05)
+        results[aligned] = result.velocity - (t + 0.05)      # ошибка относительно истинной скорости
+    assert abs(results[False] + 0.05) < 0.01                 # без пересчёта запаздывание 0,05 с × 1 м/с²
+    assert abs(results[True]) < 0.01                         # с пересчётом — без смещения
+
+
+def test_wheel_baseline_recovers_after_wheel_silence_without_overshoot():
+    estimator = create_estimator('wheel_baseline', {})
+    cruise(estimator, 2.0)                     # 10 м/с
+    for i in range(1, 31):                     # 3 с без данных колёс (удержание, затем снижение)
+        estimator.estimate(2.0 + 0.1 * i)
+    for i in range(20):                        # данные вернулись: трамвай уже едет 12 м/с
+        t = 5.1 + 0.1 * i
+        estimator.on_wheel('front', t, 12.0)
+        estimator.on_wheel('rear', t, 12.0)
+        result = estimator.estimate(t + 0.05)
+        assert abs(result.velocity - 12.0) < 0.05, f't={t:.1f}: {result.velocity:.3f}'
+
+
 def test_wheel_baseline_rejects_spike_while_standing():
     estimator = create_estimator('wheel_baseline', {})
     cruise(estimator, 2.0, speed=0.0)          # трамвай стоит
