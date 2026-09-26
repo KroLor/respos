@@ -20,6 +20,7 @@
     меньшая — 48 из 48, при торможении большая — 35 из 51);
 - нет свежих данных колёс: скорость удерживается wheel_hold_max секунд, затем плавно
   снижается, чтобы путь не «убегал» при долгом отказе датчиков.
+Дополнительно оценивается продольное скольжение тележек относительно итоговой скорости.
 """
 import math
 
@@ -29,6 +30,9 @@ from tram_odometry.estimators.base import Estimate, Estimator
 ACCELERATION_FILTER_TAU = 0.5
 # Скорость тележки ниже этой (м/с, 1 км/ч) при движении другой — отказ датчика или блокировка колеса
 STOPPED_WHEEL_SPEED = 1.0 / 3.6
+# Скольжение считается относительно скорости трамвая, но не меньше этой (м/с) — у остановки
+# деление на почти ноль превратило бы шум датчика в огромное «скольжение»
+MIN_SLIP_REFERENCE_SPEED = 1.0
 
 
 class WheelBaselineEstimator(Estimator):
@@ -62,9 +66,12 @@ class WheelBaselineEstimator(Estimator):
         self._data_stamp = None
         self._mismatch_since = None
 
-    def _measured_velocity(self, stamp, dt):
+    def _fresh(self, stamp):
+        """Скорости тележек, измеренные не раньше wheel_timeout до stamp."""
+        return [v for t, v in self._wheels.values() if stamp - t <= self._wheel_timeout]
+
+    def _measured_velocity(self, stamp, dt, fresh):
         """(скорость по свежим измерениям или None, тележки расходятся)."""
-        fresh = [v for t, v in self._wheels.values() if stamp - t <= self._wheel_timeout]
         if not fresh:
             return None, False
         low, high = min(fresh), max(fresh)
@@ -94,7 +101,8 @@ class WheelBaselineEstimator(Estimator):
 
     def estimate(self, stamp):
         dt = stamp - self._stamp if self._stamp is not None and stamp > self._stamp else 0.0
-        measured, slip = self._measured_velocity(stamp, dt)
+        fresh = self._fresh(stamp)
+        measured, slip = self._measured_velocity(stamp, dt, fresh)
         silence = 0.0
         if measured is not None:
             velocity = measured
@@ -116,10 +124,17 @@ class WheelBaselineEstimator(Estimator):
             self._stamp = stamp
         self._velocity = velocity
 
+        # Продольное скольжение s = (v_колеса − v_трамвая) / v_трамвая: > 0 — буксование,
+        # < 0 — юз; из тележек берётся наибольшее по модулю
+        slip_ratio = None
+        if fresh:
+            reference = max(velocity, MIN_SLIP_REFERENCE_SPEED)
+            slip_ratio = max((v - velocity for v in fresh), key=abs) / reference
+
         # Грубые оценки неопределённости; растут при проскальзывании и без данных
         sigma_v = 0.1 + 0.02 * velocity + (0.5 if slip else 0.0) + 0.5 * silence
         sigma_s = 1.0 + 0.01 * self._distance
         return Estimate(velocity=velocity, distance=self._distance,
                         acceleration=self._acceleration,
                         velocity_var=sigma_v ** 2, distance_var=sigma_s ** 2,
-                        slip_detected=slip)
+                        slip_detected=slip, slip_ratio=slip_ratio)

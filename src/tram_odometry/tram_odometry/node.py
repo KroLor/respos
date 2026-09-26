@@ -19,7 +19,7 @@ from rclpy.executors import ExternalShutdownException
 from rclpy.node import Node
 from rclpy.qos import DurabilityPolicy, HistoryPolicy, QoSProfile, ReliabilityPolicy
 from sensor_msgs.msg import NavSatFix
-from std_msgs.msg import Bool
+from std_msgs.msg import Bool, Float64
 from tram_vehicle_msgs.msg import DriverControllerCommand, VelocitySensor
 
 from tram_odometry.core import CoreParams, OdometryCore
@@ -42,6 +42,7 @@ TOPIC_OUT_VELOCITY = '/result/velocity'
 TOPIC_OUT_POSITION = '/result/position'
 TOPIC_OUT_ACCELERATION = '/result/acceleration'
 TOPIC_OUT_SLIP = '/result/slip_detected'
+TOPIC_OUT_SLIP_RATIO = '/result/slip_ratio'
 TOPIC_DIAGNOSTICS = '/diagnostics'
 
 # Подписка best-effort совместима и с reliable, и с best-effort издателем
@@ -132,6 +133,7 @@ class TramOdometryNode(Node):
         self._pub_acceleration = self.create_publisher(
             AccelStamped, TOPIC_OUT_ACCELERATION, OUTPUT_QOS_DEPTH)
         self._pub_slip = self.create_publisher(Bool, TOPIC_OUT_SLIP, OUTPUT_QOS_DEPTH)
+        self._pub_slip_ratio = self.create_publisher(Float64, TOPIC_OUT_SLIP_RATIO, OUTPUT_QOS_DEPTH)
         self._pub_diagnostics = self.create_publisher(
             DiagnosticArray, TOPIC_DIAGNOSTICS, OUTPUT_QOS_DEPTH)
 
@@ -244,6 +246,9 @@ class TramOdometryNode(Node):
         self._pub_position.publish(odom)
         self._pub_acceleration.publish(acceleration_msg)
         self._pub_slip.publish(Bool(data=bool(estimate.slip_detected)))
+        # Скольжение — только когда оценщик его дал (нужны свежие данные колёс)
+        if estimate.slip_ratio is not None:
+            self._pub_slip_ratio.publish(Float64(data=float(estimate.slip_ratio)))
         self._proc_times.append(time.perf_counter() - received)
 
     # --- Диагностика ---

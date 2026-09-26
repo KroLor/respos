@@ -103,7 +103,12 @@ class SupervisedEstimator:
             return None
         if result.velocity_var < 0.0 or result.distance_var < 0.0:
             return None
-        return replace(result, velocity=max(0.0, float(result.velocity)))
+        # Некорректная оценка скольжения — не сбой всей оценки: считаем, что её нет
+        slip_ratio = result.slip_ratio
+        if slip_ratio is not None and not (isinstance(slip_ratio, numbers.Real)
+                                           and math.isfinite(slip_ratio)):
+            slip_ratio = None
+        return replace(result, velocity=max(0.0, float(result.velocity)), slip_ratio=slip_ratio)
 
     def _emit(self, name: str, stamp: float, result: Estimate, previous: dict) -> Estimate:
         if name != self.active:

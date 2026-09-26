@@ -67,6 +67,7 @@ ros2 bag play <путь_к_bag> --delay 3 --clock 100
 | `/result/position` | `nav_msgs/msg/Odometry` | `pose.pose.position` — x, y, z в метрах (`frame_id` = `map`, `child_frame_id` = `base_link`); ориентация — курс; `twist.twist.linear.x` — продольная скорость; ковариации |
 | `/result/acceleration` | `geometry_msgs/msg/AccelStamped` | продольное ускорение, м/с² |
 | `/result/slip_detected` | `std_msgs/msg/Bool` | признак проскальзывания, юза или сбоя датчика колёс |
+| `/result/slip_ratio` | `std_msgs/msg/Float64` | продольное скольжение `(v_колеса − v_трамвая) / v_трамвая`: > 0 — буксование, < 0 — юз (наибольшее по модулю из тележек; публикуется, когда есть свежие данные колёс) |
 | `/diagnostics` | `diagnostic_msgs/msg/DiagnosticArray` | состояние входов, оценщика и выхода, 1 Гц |
 
 Результат публикуется на каждое сообщение контроллера (~20 Гц; датчики колёс дают только

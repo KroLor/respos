@@ -60,6 +60,22 @@ def test_wheel_baseline_zero_reading_bogie_is_ignored_even_from_rest():
     assert abs(result.velocity - 5.0) < 1e-6
 
 
+def test_wheel_baseline_slip_ratio_sign_and_scale():
+    estimator = create_estimator('wheel_baseline', {})
+    cruise(estimator, 2.0)                     # 10 м/с
+    estimator.on_wheel('front', 2.1, 10.0)
+    estimator.on_wheel('rear', 2.1, 12.0)      # задняя тележка буксует
+    result = estimator.estimate(2.1)
+    assert abs(result.velocity - 10.0) < 1e-6
+    assert abs(result.slip_ratio - 0.2) < 1e-6
+    estimator.on_wheel('front', 2.2, 10.0)
+    estimator.on_wheel('rear', 2.2, 7.0)       # задняя тележка идёт юзом
+    assert abs(estimator.estimate(2.2).slip_ratio + 0.3) < 1e-6
+    standing = create_estimator('wheel_baseline', {})
+    cruise(standing, 1.0, speed=0.0)
+    assert standing.estimate(1.0).slip_ratio == 0.0
+
+
 def test_wheel_baseline_rejects_spike_while_standing():
     estimator = create_estimator('wheel_baseline', {})
     cruise(estimator, 2.0, speed=0.0)          # трамвай стоит

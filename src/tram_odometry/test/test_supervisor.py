@@ -68,6 +68,12 @@ def test_invalid_results_are_rejected():
     assert supervisor._validate('не Estimate') is None
 
 
+def test_invalid_slip_ratio_is_dropped_not_failed():
+    supervisor = SupervisedEstimator(FlakyEstimator(), None)
+    checked = supervisor._validate(Estimate(velocity=1.0, distance=0.0, slip_ratio=math.nan))
+    assert checked is not None and checked.slip_ratio is None
+
+
 def test_input_errors_do_not_break_other_estimators():
     class BrokenInput(FlakyEstimator):
         def on_wheel(self, *args):
