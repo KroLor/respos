@@ -25,7 +25,7 @@ from tram_odometry.gnss_anchor import GnssAnchor
 from tram_odometry.preprocessing import (VEHICLE_WHEEL_SCALES, InputPreprocessor,
                                          PreprocessingParams)
 from tram_odometry.projection import UNKNOWN_YAW_VARIANCE, ProjectedPose, StraightLineProjector
-from tram_odometry.route_map import load_route_csv
+from tram_odometry.route_map import load_route_csv, load_stops_csv
 from tram_odometry.supervisor import SupervisedEstimator
 
 DEFAULT_ESTIMATOR = 'wheel_baseline'
@@ -60,6 +60,9 @@ class CoreParams:
     reference_antenna: str = 'master'       # приёмник GNSS для начала координат и привязки
     gnss_correction: bool = True            # коррекция положения по редким точкам GNSS
     gnss_correction_interval: float = 1.0   # с: коррекция не чаще
+    route_stops_file: str = ''              # остановки (.csv) для уточнения пути; '' — без них
+    stop_correction: bool = True            # уточнять путь на стоянках у известных остановок
+    stop_min_duration: float = 3.0          # с: стоянка дольше — привязка к остановке
     wheel_wait_at_start: float = 1.0        # с: ожидание первого измерения колёс (не параметр ROS)
 
 
@@ -113,7 +116,10 @@ class OdometryCore:
         self.estimator = self._create_supervisor()
         self.projector = StraightLineProjector()
         self.anchor = GnssAnchor(self._load_route(), self.p.reference_antenna,
-                                 self.p.gnss_correction, self.p.gnss_correction_interval, self._log)
+                                 self.p.gnss_correction, self.p.gnss_correction_interval, self._log,
+                                 self._load_stops())
+        self._standing_since = None     # начало текущей стоянки (время bag)
+        self._stop_done = False         # привязка к остановке на этой стоянке уже была
         self.inputs = list(VEHICLE_INPUTS) + list(GNSS_INPUTS)
         self.arrival = {}               # вход → время (clock) последнего принятого сообщения
         self.last_output = None
@@ -147,6 +153,17 @@ class OdometryCore:
             return None
         self._log('info', f'Карта маршрута: {len(points)} точек ({self.p.route_map_file})')
         return points
+
+    def _load_stops(self):
+        if not self.p.stop_correction or not self.p.route_stops_file:
+            return []
+        try:
+            stops = load_stops_csv(self.p.route_stops_file)
+        except (OSError, ValueError) as error:
+            self._log('error', f'Не удалось загрузить остановки {self.p.route_stops_file}: {error!r}')
+            return []
+        self._log('info', f'Остановок для уточнения пути: {len(stops)}')
+        return stops
 
     def _create_supervisor(self) -> SupervisedEstimator:
         """Основной оценщик + запасной wheel_baseline; ошибка создания не роняет ядро."""
@@ -216,6 +233,17 @@ class OdometryCore:
         if self.anchor.projector is not None:
             self.projector = self.anchor.projector
 
+    def _check_standstill(self, stamp: float, estimate: Estimate) -> None:
+        """Стоянка дольше stop_min_duration — один раз уточнить путь по известной остановке."""
+        if estimate.velocity > 0.1:
+            self._standing_since, self._stop_done = None, False
+            return
+        if self._standing_since is None:
+            self._standing_since = stamp
+        if not self._stop_done and stamp - self._standing_since >= self.p.stop_min_duration:
+            self._stop_done = True
+            self.anchor.on_standstill(estimate.distance)
+
     def _distance_at(self, stamp: float) -> float:
         """Пройденный путь на момент stamp (по последнему результату и его скорости)."""
         last = self.last_output
@@ -250,6 +278,7 @@ class OdometryCore:
             if stamp - self._first_trigger_stamp < self.p.wheel_wait_at_start:
                 return None
         estimate = self.estimator.estimate(stamp)
+        self._check_standstill(stamp, estimate)
         if estimate.position is not None:
             # Положение дал сам оценщик (тестовый gnss_passthrough)
             x, y, z = estimate.position

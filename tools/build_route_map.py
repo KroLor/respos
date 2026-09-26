@@ -195,6 +195,57 @@ def validate_lengths(route, local, rtk_names, chunk=500.0):
     return errs
 
 
+STOP_MOVE = 0.5            # м: за STOP_MIN_TIME трамвай сдвинулся меньше — стоит
+STOP_MIN_TIME = 5.0        # с
+STOP_CLUSTER_GAP = 8.0     # м: стоянки ближе этого вдоль кольца — одно место
+STOP_MIN_RUNS = 8          # место считается остановкой, если там стояли в стольких прогонах
+STOP_MAX_SPREAD = 3.0      # м: и разброс мест стоянки не больше этого
+
+
+def find_stops(route, runs, enu, names):
+    """Места, где трамваи стабильно останавливаются (платформы): (lat, lon, курс, u, σ, прогонов)."""
+    episodes = []           # (u, прогон, x, y, курс)
+    for name in names:
+        fx = runs[name]
+        # Выбросы GNSS убираются так же, как в remove_jumps, но с сохранением меток времени
+        kept, stamps = [enu.to_enu(*fx[0][1:4])], [fx[0][0]]
+        for f, p in zip(fx[1:], [enu.to_enu(*f[1:4]) for f in fx[1:]]):
+            if math.dist(p[:2], kept[-1][:2]) <= MAX_SPEED * max(f[0] - stamps[-1], 1e-3) + 0.5:
+                kept.append(p)
+                stamps.append(f[0])
+        i = 0
+        while i < len(kept):
+            j = i
+            while j + 1 < len(kept) and math.dist(kept[j + 1][:2], kept[i][:2]) < STOP_MOVE:
+                j += 1
+            if stamps[j] - stamps[i] >= STOP_MIN_TIME:
+                back = next((k for k in range(i, -1, -1) if math.dist(kept[k][:2], kept[i][:2]) > 5.0), None)
+                if back is not None:
+                    heading = math.atan2(kept[i][1] - kept[back][1], kept[i][0] - kept[back][0])
+                    x = sum(p[0] for p in kept[i:j + 1]) / (j + 1 - i)
+                    y = sum(p[1] for p in kept[i:j + 1]) / (j + 1 - i)
+                    match = route.project(x, y, heading)
+                    if match is not None and match[1] <= 3.0:
+                        episodes.append((match[0], name, x, y, heading))
+            i = j + 1
+    episodes.sort()
+    stops, group = [], []
+    for ep in episodes + [None]:
+        if ep is not None and (not group or ep[0] - group[-1][0] <= STOP_CLUSTER_GAP):
+            group.append(ep)
+            continue
+        if len({g[1] for g in group}) >= STOP_MIN_RUNS:
+            us = [g[0] for g in group]
+            mean = sum(us) / len(us)
+            spread = math.sqrt(sum((u - mean) ** 2 for u in us) / len(us))
+            if spread <= STOP_MAX_SPREAD:
+                x, y = sum(g[2] for g in group) / len(group), sum(g[3] for g in group) / len(group)
+                heading = math.atan2(sum(math.sin(g[4]) for g in group), sum(math.cos(g[4]) for g in group))
+                stops.append((x, y, heading, mean, spread, len({g[1] for g in group})))
+        group = [ep] if ep is not None else []
+    return stops
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__.split('\n')[0])
     parser.add_argument('data', type=Path, help='папка data датасета (122 bag)')
@@ -311,6 +362,23 @@ def main():
     rtk_names = [n for n in runs if n.startswith(VEHICLE)
                  and sum(1 for f in runs[n] if f[4] == 2) / len(runs[n]) > 0.9]
     validate_lengths(route, local, rtk_names)
+
+    # Остановки: места, где трамваи стабильно стоят (для уточнения пути во время работы)
+    stops = find_stops(route, runs, enu, [n for n in runs if n.startswith(VEHICLE)])
+    stops_file = args.output.with_name('route_stops.csv')
+    lines = ['# Остановки: места стабильной стоянки трамваев (платформы), из обучающих прогонов 30618',
+             f'# Стоянка >= {STOP_MIN_TIME:.0f} с; место — если стояли в >= {STOP_MIN_RUNS} прогонах '
+             f'с разбросом <= {STOP_MAX_SPREAD:.0f} м вдоль пути',
+             'lat,lon,heading,spread,runs']
+    for x, y, heading, u, spread, count in stops:
+        lat, lon, _ = enu_to_geodetic(enu, (x, y, 0.0))
+        lines.append(f'{lat:.8f},{lon:.8f},{heading:.4f},{spread:.2f},{count}')
+    with open(stops_file, 'w', encoding='utf-8') as f:
+        f.write(chr(10).join(lines) + chr(10))
+    spreads = sorted(st[4] for st in stops)
+    print(f'Остановок: {len(stops)} (разброс места: медиана {spreads[len(spreads) // 2]:.2f} м, '
+          f'макс {spreads[-1]:.2f} м); средний интервал {route.length / max(len(stops), 1):.0f} м; '
+          f'записаны: {stops_file}')
 
 
 def enu_to_geodetic(enu: LocalEnu, point):

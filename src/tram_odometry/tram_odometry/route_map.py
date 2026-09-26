@@ -27,6 +27,19 @@ def load_route_csv(path: str) -> List[Tuple[float, float, float]]:
     return points
 
 
+def load_stops_csv(path: str) -> List[Tuple[float, float, float, float]]:
+    """Остановки (широта, долгота, курс, разброс места вдоль пути, м); строки '#' — комментарии."""
+    stops = []
+    with open(path, encoding='utf-8') as f:
+        for line in f:
+            line = line.strip()
+            if not line or line.startswith('#') or line.startswith('lat,'):
+                continue
+            lat, lon, heading, spread, _ = line.split(',')
+            stops.append((float(lat), float(lon), float(heading), float(spread)))
+    return stops
+
+
 def angle_diff(a: float, b: float) -> float:
     """Разность углов в диапазоне [-π, π]."""
     return (a - b + math.pi) % (2.0 * math.pi) - math.pi

@@ -118,6 +118,24 @@ def test_correction_pulls_position_and_rejects_outliers():
     assert var_after < 0.05
 
 
+def test_stop_correction():
+    # Остановка на пути «туда» в x = 800 (разброс места 1 м)
+    lat, lon, _ = geodetic(800.0, 0.0)
+    anchor = GnssAnchor(test_ring(), correction=False, stops=[(lat, lon, 0.0, 1.0)])
+    for k in range(3):
+        fix(anchor, 'master', 0.1 * k, 100.0, 0.0)
+        fix(anchor, 'rover', 0.1 * k + 0.01, 112.4, 0.0)
+    assert len(anchor.stop_u) == 1 and abs(anchor.stop_u[0][0] - 800.0) < 0.5
+    anchor.on_standstill(10.0)                     # начало пути: неопределённость мала — не трогаем
+    assert anchor.stop_updates == 0
+    anchor.on_standstill(3000.0)                   # далеко от остановки (σ ≈ 18 м) — не наша
+    assert anchor.stop_updates == 0
+    u0 = anchor.u0
+    anchor.on_standstill(692.0)                    # одометрия: x = 792, остановка — в 8 м впереди
+    assert anchor.stop_updates == 1
+    assert abs(anchor.route.wrap(anchor.u0 + 692.0) - 800.0) < 3.0 and anchor.u0 > u0
+
+
 def test_without_map_straight_line_from_fix_along_heading():
     anchor = GnssAnchor(None)
     fix(anchor, 'master', 0.0, 0.0, 0.0)

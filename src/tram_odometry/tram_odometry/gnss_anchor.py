@@ -41,6 +41,10 @@ GNSS_SIGMA = 1.5                # м: без RTK
 MAP_CROSS_SIGMA = 0.5           # м: поперёк пути на карте (точность карты и колеи)
 MAP_Z_SIGMA = 1.0               # м: высота по карте
 MAP_YAW_SIGMA = 0.03            # рад: курс по карте
+STOP_MIN_SIGMA = 3.0            # м: привязка к остановке — только если путь уже неточен
+STOP_EXTRA_SIGMA = 1.0          # м: к разбросу места остановки (очередь, точность остановки)
+STOP_GATE = 3.0                 # остановка дальше этого числа σ — не наша (светофор и т. п.)
+STOP_MAX_INNOVATION = 20.0      # м: поправка по остановке не больше — иначе трамвай стоит не у платформы (очередь, светофор)
 
 
 class RouteProjector:
@@ -61,8 +65,12 @@ class GnssAnchor:
     def __init__(self, route_points: Optional[List[Tuple[float, float, float]]],
                  reference_antenna: str = 'master', correction: bool = True,
                  correction_interval: float = 1.0,
-                 log: Optional[Callable[[str, str], None]] = None) -> None:
+                 log: Optional[Callable[[str, str], None]] = None,
+                 stops: Optional[List[Tuple[float, float, float, float]]] = None) -> None:
         self.route_points = route_points
+        self.stops = stops or []
+        self.stop_u = []                # остановки на кольце: (u, разброс места, м)
+        self.stop_updates = 0
         self.reference = reference_antenna if reference_antenna in ('master', 'rover') else 'master'
         self.correction = correction
         self.correction_interval = correction_interval
@@ -107,6 +115,11 @@ class GnssAnchor:
             self.enu = LocalEnu(lat, lon, alt)
             if self.route_points:
                 self.route = LocalRoute(self.route_points, self.enu)
+                for lat_s, lon_s, heading_s, spread in self.stops:
+                    sx, sy, _ = self.enu.to_enu(lat_s, lon_s, alt)
+                    match = self.route.project(sx, sy, heading_s)
+                    if match is not None and match[1] <= 5.0:
+                        self.stop_u.append((match[0], spread))
         east, north, _ = self.enu.to_enu(lat, lon, alt)
         self._update_heading(source, stamp, east, north)
         if source != self.reference:
@@ -170,6 +183,29 @@ class GnssAnchor:
             self.state = 'вне карты' if self.route is not None else 'без карты'
             self._log('warn', f'Выставка без карты ({self.state}): прямая от точки GNSS, '
                               f'курс: {self.heading_source}')
+
+    def on_standstill(self, distance: float) -> None:
+        """Трамвай стоит: если рядом известная остановка, уточнить место на кольце по ней.
+
+        Остановки (из обучающих прогонов) — места стабильной стоянки с разбросом ~1 м; привязка
+        делается, только когда неопределённость пути уже больше STOP_MIN_SIGMA, и только к
+        остановке в пределах STOP_GATE σ (иначе это, например, светофор)."""
+        if not self.on_route or not self.stop_u:
+            return
+        prior_var = self.along_var(distance)
+        if prior_var < STOP_MIN_SIGMA ** 2:
+            return
+        u_pred = self.route.wrap(self.u0 + distance)
+        u_stop, spread = min(self.stop_u, key=lambda s: abs(self.route.delta(s[0], u_pred)))
+        innovation = self.route.delta(u_stop, u_pred)
+        stop_var = (spread + STOP_EXTRA_SIGMA) ** 2
+        if abs(innovation) > min(STOP_GATE * math.sqrt(prior_var + stop_var), STOP_MAX_INNOVATION):
+            return
+        gain = prior_var / (prior_var + stop_var)
+        self.u0 = self.route.wrap(self.u0 + gain * innovation)
+        self.projector.u0 = self.u0
+        self._anchor_var, self._anchor_s = (1.0 - gain) * prior_var, distance
+        self.stop_updates += 1
 
     def _correct(self, stamp, east, north, status, distance):
         if self._last_correction is not None and stamp - self._last_correction < self.correction_interval:

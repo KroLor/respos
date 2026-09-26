@@ -101,6 +101,10 @@ PARAM_DESCRIPTIONS = {
         'Приёмник GNSS для начала координат и привязки к карте: master или rover',
     'gnss_correction': 'Поправлять положение на карте по редким точкам GNSS в середине маршрута',
     'gnss_correction_interval': 'Коррекция по GNSS не чаще, чем раз в столько секунд',
+    'route_stops_file':
+        'Остановки (.csv) для уточнения пути на стоянках; пусто — файл из пакета, none — без них',
+    'stop_correction': 'Уточнять путь на стоянках у известных остановок',
+    'stop_min_duration': 'Стоянка дольше (с) — привязка к ближайшей известной остановке',
 }
 
 
@@ -134,6 +138,11 @@ class TramOdometryNode(Node):
                 get_package_share_directory('tram_odometry'), 'config', 'route_map.csv')
         elif core_params.route_map_file.lower() == 'none':
             core_params.route_map_file = ''
+        if not core_params.route_stops_file:
+            core_params.route_stops_file = os.path.join(
+                get_package_share_directory('tram_odometry'), 'config', 'route_stops.csv')
+        elif core_params.route_stops_file.lower() == 'none':
+            core_params.route_stops_file = ''
         self._frame_id = self._declare('frame_id', 'map', 'Система координат положения')
         self._child_frame_id = self._declare(
             'child_frame_id', 'base_link', 'Система координат трамвая')
@@ -336,6 +345,7 @@ class TramOdometryNode(Node):
             'курс по': anchor.heading_source,
             'до карты при выставке, м': '-' if anchor.init_distance is None else f'{anchor.init_distance:.2f}',
             'коррекций GNSS': anchor.corrections, 'отклонено точек GNSS': anchor.rejected,
+            'привязок к остановкам': anchor.stop_updates,
         }
         if anchor.on_route and last is not None:
             values['σ вдоль пути, м'] = f'{math.sqrt(anchor.along_var(last.distance)):.2f}'
