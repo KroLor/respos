@@ -64,7 +64,7 @@ ros2 bag play <путь_к_bag> --delay 3 --clock 100
 | Топик | Тип | Содержимое |
 |---|---|---|
 | `/result/velocity` | `tram_vehicle_msgs/msg/VelocitySensor` | `velocity` — продольная скорость, м/с; `header.stamp` — метка входного сообщения; `frame_id` = `base_link` |
-| `/result/position` | `nav_msgs/msg/Odometry` | `pose.pose.position` — x, y, z в метрах (`frame_id` = `map`, `child_frame_id` = `base_link`); ориентация — курс; `twist.twist.linear.x` — продольная скорость; ковариации |
+| `/result/position` | `nav_msgs/msg/Odometry` | `pose.pose.position` — x, y, z в метрах (`frame_id` = `map`, `child_frame_id` = `base_link`); ориентация — курс; `twist.twist.linear.x` — продольная скорость; ковариации: положения — неопределённость вдоль и поперёк пути, повёрнутая в оси x/y по курсу (откалибрована по данным: скорость σ ≈ 0,1 м/с, путь ≈ 0,6 % пройденного), крен и тангаж малы (рельсы), курс и поперечная ошибка честно велики, пока курс неизвестен |
 | `/result/acceleration` | `geometry_msgs/msg/AccelStamped` | продольное ускорение, м/с² |
 | `/result/slip_detected` | `std_msgs/msg/Bool` | признак проскальзывания, юза или сбоя датчика колёс |
 | `/result/slip_ratio` | `std_msgs/msg/Float64` | продольное скольжение `(v_колеса − v_трамвая) / v_трамвая`: > 0 — буксование, < 0 — юз (наибольшее по модулю из тележек; публикуется, когда есть свежие данные колёс) |

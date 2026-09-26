@@ -33,6 +33,14 @@ STOPPED_WHEEL_SPEED = 1.0 / 3.6
 # Скольжение считается относительно скорости трамвая, но не меньше этой (м/с) — у остановки
 # деление на почти ноль превратило бы шум датчика в огромное «скольжение»
 MIN_SLIP_REFERENCE_SPEED = 1.0
+# Неопределённости, откалиброванные по 86 прогонам с GNSS: RMSE скорости выше 1 м/с —
+# 0,09–0,11 м/с и почти не зависит от скорости; ошибка пути — 0,65 м в первые 100 м,
+# дрейф в конце прогона — медиана 0,19 %, p90 0,88 % пути
+VELOCITY_SIGMA = 0.10               # м/с
+VELOCITY_SIGMA_SLIP = 0.5           # м/с — добавка при расхождении тележек
+VELOCITY_SIGMA_PER_SILENCE = 0.5    # м/с за секунду без данных колёс
+DISTANCE_SIGMA0 = 0.5               # м
+DISTANCE_SIGMA_PER_METER = 0.006    # доля пройденного пути
 
 
 class WheelBaselineEstimator(Estimator):
@@ -131,10 +139,12 @@ class WheelBaselineEstimator(Estimator):
             reference = max(velocity, MIN_SLIP_REFERENCE_SPEED)
             slip_ratio = max((v - velocity for v in fresh), key=abs) / reference
 
-        # Грубые оценки неопределённости; растут при проскальзывании и без данных
-        sigma_v = 0.1 + 0.02 * velocity + (0.5 if slip else 0.0) + 0.5 * silence
-        sigma_s = 1.0 + 0.01 * self._distance
+        # Неопределённость скорости растёт при проскальзывании и без данных колёс;
+        # неопределённость пути — с пройденным путём
+        sigma_v = (VELOCITY_SIGMA + (VELOCITY_SIGMA_SLIP if slip else 0.0)
+                   + VELOCITY_SIGMA_PER_SILENCE * silence)
+        distance_var = DISTANCE_SIGMA0 ** 2 + (DISTANCE_SIGMA_PER_METER * self._distance) ** 2
         return Estimate(velocity=velocity, distance=self._distance,
                         acceleration=self._acceleration,
-                        velocity_var=sigma_v ** 2, distance_var=sigma_s ** 2,
+                        velocity_var=sigma_v ** 2, distance_var=distance_var,
                         slip_detected=slip, slip_ratio=slip_ratio)

@@ -12,23 +12,30 @@
   wheel_wait_at_start (при неработающих датчиках колёс она всё равно начнётся);
 - смена отсчёта времени во входах назад — метки результатов начинаются заново.
 """
+import math
 import time
 from dataclasses import dataclass
 from typing import Callable, List, Optional
 
 from tram_odometry.estimators import ESTIMATORS, Estimate, create_estimator
 from tram_odometry.preprocessing import InputPreprocessor, PreprocessingParams
-from tram_odometry.projection import StraightLineProjector
+from tram_odometry.projection import UNKNOWN_YAW_VARIANCE, ProjectedPose, StraightLineProjector
 from tram_odometry.supervisor import SupervisedEstimator
 
 DEFAULT_ESTIMATOR = 'wheel_baseline'
 VEHICLE_INPUTS = ('front', 'rear', 'driver_cmd')
 GNSS_INPUTS = ('gnss_fix_master', 'gnss_vel_master', 'gnss_fix_rover', 'gnss_vel_rover')
 
-# Дисперсии величин, которые пока не оцениваются
-UNKNOWN_VARIANCE = 1e3
-# Трамвай на рельсах не движется вбок и вертикально относительно корпуса
+# Трамвай на рельсах не движется вбок и вертикально относительно корпуса, м²/с²
 CONSTRAINED_VARIANCE = 1e-4
+# Крен и тангаж на рельсах малы (возвышение наружного рельса, уклоны — до ~2°), рад²
+ROLL_PITCH_VARIANCE = 0.03 ** 2
+# Скорости крена и тангажа малы, (рад/с)²
+ROLL_PITCH_RATE_VARIANCE = 0.01 ** 2
+# Скорость поворота (курса) не оценивается, (рад/с)²
+UNKNOWN_YAW_RATE_VARIANCE = 1.0
+# Курс, заданный оценщиком (например, по GNSS), рад²
+ESTIMATOR_YAW_VARIANCE = 0.05 ** 2
 
 
 @dataclass
@@ -63,6 +70,20 @@ def diagonal_covariance(diagonal) -> List[float]:
     covariance = [0.0] * 36
     for i, value in enumerate(diagonal):
         covariance[i * 7] = float(value)
+    return covariance
+
+
+def pose_covariance(along_var: float, pose: ProjectedPose) -> List[float]:
+    """Ковариация положения 6x6: вдоль и поперёк пути, повёрнутые в оси x/y по курсу.
+
+    Σ_xy = R(yaw) · diag(σ²вдоль, σ²поперёк) · R(yaw)ᵀ; далее z, крен, тангаж, курс.
+    """
+    c, s = math.cos(pose.yaw), math.sin(pose.yaw)
+    covariance = diagonal_covariance([
+        c * c * along_var + s * s * pose.cross_var,
+        s * s * along_var + c * c * pose.cross_var,
+        pose.z_var, ROLL_PITCH_VARIANCE, ROLL_PITCH_VARIANCE, pose.yaw_var])
+    covariance[1] = covariance[6] = c * s * (along_var - pose.cross_var)
     return covariance
 
 
@@ -179,20 +200,22 @@ class OdometryCore:
                 return None
         estimate = self.estimator.estimate(stamp)
         if estimate.position is not None:
+            # Положение дал сам оценщик (тестовый gnss_passthrough)
             x, y, z = estimate.position
-            yaw = estimate.yaw if estimate.yaw is not None else 0.0
+            yaw_known = estimate.yaw is not None
+            pose = ProjectedPose(
+                x=x, y=y, z=z, yaw=estimate.yaw if yaw_known else 0.0,
+                cross_var=estimate.distance_var, z_var=estimate.distance_var,
+                yaw_var=ESTIMATOR_YAW_VARIANCE if yaw_known else UNKNOWN_YAW_VARIANCE)
         else:
-            x, y, z, yaw = self.projector.project(estimate.distance)
+            pose = self.projector.project(estimate.distance)
         output = Output(
-            stamp=stamp, estimate=estimate, x=x, y=y, z=z, yaw=yaw,
-            # Ориентация пока не оценивается
-            pose_covariance=diagonal_covariance([
-                estimate.distance_var, estimate.distance_var, estimate.distance_var,
-                UNKNOWN_VARIANCE, UNKNOWN_VARIANCE, UNKNOWN_VARIANCE]),
-            # Скорость — продольная, в системе трамвая
+            stamp=stamp, estimate=estimate, x=pose.x, y=pose.y, z=pose.z, yaw=pose.yaw,
+            pose_covariance=pose_covariance(estimate.distance_var, pose),
+            # Скорость — продольная, в системе трамвая: вбок и вверх она ~0, крен и тангаж ~0
             twist_covariance=diagonal_covariance([
                 estimate.velocity_var, CONSTRAINED_VARIANCE, CONSTRAINED_VARIANCE,
-                UNKNOWN_VARIANCE, UNKNOWN_VARIANCE, UNKNOWN_VARIANCE]),
+                ROLL_PITCH_RATE_VARIANCE, ROLL_PITCH_RATE_VARIANCE, UNKNOWN_YAW_RATE_VARIANCE]),
         )
         self._last_pub_stamp = stamp
         self.last_output = output

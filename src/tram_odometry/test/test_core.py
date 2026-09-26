@@ -1,6 +1,7 @@
 import math
 
-from tram_odometry.core import CoreParams, OdometryCore
+from tram_odometry.core import ROLL_PITCH_VARIANCE, CoreParams, OdometryCore, pose_covariance
+from tram_odometry.projection import ProjectedPose
 
 
 def make(**kwargs):
@@ -76,3 +77,21 @@ def test_output_fields():
     assert len(output.pose_covariance) == 36 and len(output.twist_covariance) == 36
     assert abs(output.x - output.estimate.distance) < 1e-9   # путь по прямой вдоль x
     assert output.y == 0.0 and output.yaw == 0.0
+    cov = output.pose_covariance
+    assert cov[7] > cov[0]                    # курс неизвестен: поперёк пути неопределённость больше
+    assert cov[21] == cov[28] == ROLL_PITCH_VARIANCE
+
+
+def test_pose_covariance_rotates_along_and_cross_track():
+    pose = ProjectedPose(x=0.0, y=0.0, z=0.0, yaw=0.0, cross_var=4.0, z_var=9.0, yaw_var=0.01)
+    cov = pose_covariance(1.0, pose)
+    assert cov[0] == 1.0 and cov[7] == 4.0 and abs(cov[1]) < 1e-12
+    assert cov[14] == 9.0 and cov[35] == 0.01
+    pose.yaw = math.pi / 2                    # путь вдоль y: вдоль-путевая дисперсия уходит в y
+    cov = pose_covariance(1.0, pose)
+    assert abs(cov[0] - 4.0) < 1e-9 and abs(cov[7] - 1.0) < 1e-9
+    pose.yaw = math.pi / 4
+    cov = pose_covariance(1.0, pose)
+    assert cov[1] == cov[6]                   # симметрия
+    assert abs(cov[0] - 2.5) < 1e-9 and abs(cov[1] + 1.5) < 1e-9
+    assert cov[0] * cov[7] - cov[1] ** 2 >= -1e-9   # положительно полуопределена
