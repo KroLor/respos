@@ -1,10 +1,12 @@
 import math
 
-from tram_odometry.preprocessing import InputPreprocessor, PreprocessingParams
+from tram_odometry.preprocessing import (NOMINAL_WHEEL_SCALE, VEHICLE_WHEEL_SCALES,
+                                         InputPreprocessor, PreprocessingParams)
 
 
 def make():
-    return InputPreprocessor(PreprocessingParams())
+    # Номинальный масштаб 1/3,6 — чтобы проверять логику на «круглых» числах
+    return InputPreprocessor(PreprocessingParams(wheel_speed_scale=NOMINAL_WHEEL_SCALE))
 
 
 def test_invalid_and_out_of_range_values_are_rejected():
@@ -24,6 +26,18 @@ def test_small_negative_speed_is_clamped_and_converted():
     sample = pre.wheel('front', 1.0, -0.4)
     assert sample.value == 0.0 and pre.state('front').clamped == 1
     assert abs(pre.wheel('front', 1.1, 36.0).value - 10.0) < 1e-9   # км/ч → м/с
+
+
+def test_wheel_scale_by_vehicle():
+    assert InputPreprocessor(PreprocessingParams()).wheel_scale == VEHICLE_WHEEL_SCALES['30618']
+    pre = InputPreprocessor(PreprocessingParams(vehicle_id='30639'))
+    assert pre.wheel_scale == VEHICLE_WHEEL_SCALES['30639'] and pre.known_vehicle
+    unknown = InputPreprocessor(PreprocessingParams(vehicle_id='99999'))
+    assert unknown.wheel_scale == NOMINAL_WHEEL_SCALE and not unknown.known_vehicle
+    manual = InputPreprocessor(PreprocessingParams(vehicle_id='30639', wheel_speed_scale=0.25))
+    assert manual.wheel_scale == 0.25
+    # 30618: путь колёс / путь GNSS = 3,594 — 35,94 км/ч по колёсам это 10 м/с
+    assert abs(InputPreprocessor(PreprocessingParams()).wheel('front', 1.0, 35.94).value - 10.0) < 1e-9
 
 
 def test_bad_stamps_are_rejected():

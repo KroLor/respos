@@ -30,9 +30,22 @@ STAMP_RESYNC_FORWARD = 'resync_forward'
 STAMP_RESYNC_BACKWARD = 'resync_backward'
 
 
+# Масштаб скорости колёс (км/ч → м/с) по трамваям: калибровка по координатам GNSS
+# на надёжных участках (скорость > 10 км/ч, тележки согласны, без скачков GNSS).
+# Путь колёс / путь GNSS: 30618 — 3,5940 (60 прогонов, 300 км, квартили 3,594–3,598),
+# 30639 — 3,6095 (18 прогонов, 85 км; между днями менялся от 3,63 до 3,59).
+# Передняя и задняя тележки совпадают в пределах 0,01 %.
+VEHICLE_WHEEL_SCALES = {
+    '30618': 1.0 / 3.5940,
+    '30639': 1.0 / 3.6095,
+}
+NOMINAL_WHEEL_SCALE = 1.0 / 3.6
+
+
 @dataclass
 class PreprocessingParams:
-    wheel_speed_scale: float = 1.0 / 3.6       # км/ч → м/с
+    vehicle_id: str = '30618'                  # трамвай: откалиброванный масштаб колёс
+    wheel_speed_scale: float = 0.0             # км/ч → м/с; 0 — масштаб для vehicle_id
     wheel_speed_max_kmh: float = 120.0         # выше — заведомо неверное значение
     wheel_negative_tolerance_kmh: float = 1.0  # от -этого до 0 — шум, обнуляется
     suspicious_accel: float = 3.0              # м/с²: изменение скорости быстрее — подозрительно
@@ -77,6 +90,12 @@ class InputPreprocessor:
 
     def __init__(self, params: PreprocessingParams) -> None:
         self.p = params
+        # Масштаб колёс: заданный вручную, иначе откалиброванный для трамвая, иначе номинальный
+        self.known_vehicle = params.vehicle_id in VEHICLE_WHEEL_SCALES
+        if params.wheel_speed_scale > 0.0:
+            self.wheel_scale = params.wheel_speed_scale
+        else:
+            self.wheel_scale = VEHICLE_WHEEL_SCALES.get(params.vehicle_id, NOMINAL_WHEEL_SCALE)
         self.topics = {}
 
     def state(self, name: str) -> TopicState:
@@ -123,7 +142,7 @@ class InputPreprocessor:
         state.last_value = speed_kmh
         if suspicious:
             state.suspicious += 1
-        return Sample(stamp, speed_kmh * p.wheel_speed_scale, suspicious,
+        return Sample(stamp, speed_kmh * self.wheel_scale, suspicious,
                       result == STAMP_RESYNC_BACKWARD)
 
     def driver_cmd(self, stamp: float, position: int) -> Optional[Sample]:

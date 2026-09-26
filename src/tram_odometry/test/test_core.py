@@ -1,11 +1,14 @@
 import math
 
 from tram_odometry.core import ROLL_PITCH_VARIANCE, CoreParams, OdometryCore, pose_covariance
+from tram_odometry.preprocessing import NOMINAL_WHEEL_SCALE, PreprocessingParams
 from tram_odometry.projection import ProjectedPose
 
 
 def make(**kwargs):
-    return OdometryCore(params=CoreParams(**kwargs), clock=lambda: 0.0)
+    # Номинальный масштаб колёс 1/3,6 — чтобы проверять логику на «круглых» числах
+    return OdometryCore(PreprocessingParams(wheel_speed_scale=NOMINAL_WHEEL_SCALE),
+                        CoreParams(**kwargs), clock=lambda: 0.0)
 
 
 def wheels(core, stamp, speed_kmh):

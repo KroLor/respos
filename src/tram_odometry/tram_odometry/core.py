@@ -18,7 +18,8 @@ from dataclasses import dataclass
 from typing import Callable, List, Optional
 
 from tram_odometry.estimators import ESTIMATORS, Estimate, create_estimator
-from tram_odometry.preprocessing import InputPreprocessor, PreprocessingParams
+from tram_odometry.preprocessing import (VEHICLE_WHEEL_SCALES, InputPreprocessor,
+                                         PreprocessingParams)
 from tram_odometry.projection import UNKNOWN_YAW_VARIANCE, ProjectedPose, StraightLineProjector
 from tram_odometry.supervisor import SupervisedEstimator
 
@@ -97,6 +98,7 @@ class OdometryCore:
         self.pre = InputPreprocessor(pre_params or PreprocessingParams())
         self._log = log or (lambda level, text: None)
         self._clock = clock
+        self._log_wheel_scale()
         self.estimator = self._create_supervisor()
         self.projector = StraightLineProjector()
         self.inputs = list(VEHICLE_INPUTS)
@@ -112,14 +114,25 @@ class OdometryCore:
         self._wheel_seen = False
         self._first_trigger_stamp = None
 
+    def _log_wheel_scale(self) -> None:
+        pre = self.pre
+        if pre.p.wheel_speed_scale > 0.0:
+            self._log('info', f'Масштаб колёс задан вручную: {pre.wheel_scale:.6f} (м/с на км/ч)')
+        elif pre.known_vehicle:
+            self._log('info', f'Трамвай {pre.p.vehicle_id}: масштаб колёс {pre.wheel_scale:.6f} '
+                              f'(1/{1.0 / pre.wheel_scale:.4f}, калибровка по GNSS)')
+        else:
+            self._log('warn', f'Трамвай "{pre.p.vehicle_id}" неизвестен: масштаб колёс номинальный '
+                              f'1/3,6; откалиброваны: {", ".join(VEHICLE_WHEEL_SCALES)}')
+
     def _create_supervisor(self) -> SupervisedEstimator:
         """Основной оценщик + запасной wheel_baseline; ошибка создания не роняет ядро."""
         pre = self.pre.p
         params = {
             'wheel_timeout': pre.wheel_timeout,
-            'bogie_mismatch': pre.bogie_mismatch_kmh * pre.wheel_speed_scale,
+            'bogie_mismatch': pre.bogie_mismatch_kmh * self.pre.wheel_scale,
             'plausible_accel': pre.suspicious_accel,
-            'plausible_margin': pre.suspicious_margin_kmh * pre.wheel_speed_scale,
+            'plausible_margin': pre.suspicious_margin_kmh * self.pre.wheel_scale,
             'bogie_mismatch_max_duration': self.p.bogie_mismatch_max_duration,
             'wheel_hold_max': self.p.wheel_hold_max,
             'wheel_decay_tau': self.p.wheel_decay_tau,

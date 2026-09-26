@@ -65,7 +65,9 @@ INPUT_WALL_TIMEOUT = 2.0
 # Значения по умолчанию — в CoreParams и PreprocessingParams (единственное место)
 PARAM_DESCRIPTIONS = {
     'estimator': 'Оценщик: ' + ', '.join(ESTIMATORS) + ' (gnss_passthrough — только для тестов)',
-    'wheel_speed_scale': 'Множитель скорости колёс: датчики пишут км/ч, оценщики работают в м/с',
+    'vehicle_id': 'Трамвай (30618 или 30639): выбирает откалиброванный по GNSS масштаб колёс',
+    'wheel_speed_scale':
+        'Множитель скорости колёс км/ч → м/с; 0 — откалиброванный для vehicle_id',
     'wheel_speed_max_kmh': 'Скорость колеса выше (км/ч) — отброс',
     'wheel_negative_tolerance_kmh':
         'Скорость от -этого значения до 0 (км/ч) — шум, обнуляется; ниже — отброс',
