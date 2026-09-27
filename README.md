@@ -43,8 +43,8 @@ docs/                       REPORT.md — отчёт; MODEL.md — модель;
 reports/                    калибровка и проверка точности модели
 ```
 
-История разработки сохранена: нода и инструменты — ветка `interface`, модель — ветка `algorithm`;
-обе слиты в `main`, это итоговая версия.
+История разработки сохранена: нода и инструменты — ветка [`interface`](https://github.com/KroLor/tram-backup-odometry/tree/interface),
+модель — ветка [`algorithm`](https://github.com/KroLor/tram-backup-odometry/tree/algorithm); обе слиты в `main`, это итоговая версия.
 
 ## Как устроено
 
@@ -92,8 +92,8 @@ reports/                    калибровка и проверка точно�
 
 ```bash
 cd check-code
-git clone https://github.com/KroLor/respos.git /tmp/respos
-cp -r /tmp/respos/src/* src/
+git clone https://github.com/KroLor/tram-backup-odometry.git /tmp/tram-backup-odometry
+cp -r /tmp/tram-backup-odometry/src/* src/
 source /opt/ros/humble/setup.bash
 colcon build
 source install/setup.bash
@@ -103,7 +103,7 @@ source install/setup.bash
 
 ```bash
 mkdir -p ~/ws/src && cd ~/ws/src
-git clone https://github.com/KroLor/respos.git
+git clone https://github.com/KroLor/tram-backup-odometry.git
 cp -r "<датасет>/tram_vehicle_msgs" .
 cd ~/ws && source /opt/ros/humble/setup.bash && colcon build && source install/setup.bash
 ```
