@@ -79,7 +79,7 @@ def export_tree():
     code, out = wsl('rm -rf ~/jury_check && mkdir -p ~/jury_check/ws/src/respos && '
                     'tar -xf - -C ~/jury_check/ws/src/respos && echo EXPORTED', stdin=buf.getvalue())
     ok = code == 0 and 'EXPORTED' in out
-    # Модель напарника: в ветке interface её нет — берём из ветки algorithm (как будет в main)
+    # Пакет модели: в ветке interface его нет — берём из ветки algorithm (как будет в main)
     model = model_archive()
     if model:
         code, out = wsl('tar -xf - -C ~/jury_check/ws/src/respos && echo MODEL', stdin=model)

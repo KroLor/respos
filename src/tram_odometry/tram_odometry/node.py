@@ -107,11 +107,23 @@ PARAM_DESCRIPTIONS = {
         'Остановки (.csv) для уточнения пути на стоянках; пусто — файл из пакета, none — без них',
     'stop_correction': 'Уточнять путь на стоянках у известных остановок',
     'stop_min_duration': 'Стоянка дольше (с) — привязка к ближайшей известной остановке',
+    'backup_model_share':
+        'Каталог данных модели backup_model (config/model.json, config/esn.json, data/pathgraph.json '
+        'и соседние файлы карты); пусто — из установленного пакета tram_backup_odometry',
 }
+# Параметры модели, которые берутся из её калибровки (config/model.json), а не из model.*
+MODEL_CALIBRATED_PARAMS = ('wheel_scale', 'distance_scale')
+MODEL_PARAM_DESCRIPTION = 'Параметр модели tram_backup_odometry (src/tram_backup_odometry/README.md, §5)'
 
 
 def stamp_to_sec(stamp) -> float:
     return stamp.sec + stamp.nanosec * 1e-9
+
+
+def same_value(a, b) -> bool:
+    """Равенство значений параметров; NaN равен NaN (значение «не задано»)."""
+    both_nan = isinstance(a, float) and isinstance(b, float) and math.isnan(a) and math.isnan(b)
+    return both_nan or a == b
 
 
 def guarded(method):
@@ -135,6 +147,7 @@ class TramOdometryNode(Node):
 
         pre_params = self._declare_dataclass(PreprocessingParams)
         core_params = self._declare_dataclass(CoreParams)
+        core_params.backup_model_overrides = self._declare_model_params()
         if not core_params.route_map_file:
             core_params.route_map_file = os.path.join(
                 get_package_share_directory('tram_odometry'), 'config', 'route_map.csv')
@@ -174,14 +187,16 @@ class TramOdometryNode(Node):
             lambda msg: self._on_wheel('rear', msg), INPUT_QOS)
         self.create_subscription(
             DriverControllerCommand, INPUT_TOPICS['driver_cmd'], self._on_driver_cmd, INPUT_QOS)
-        # GNSS: начальная выставка и коррекция по редким точкам (разрешено организаторами)
+        # GNSS: начальная выставка и коррекция по редким точкам в пути (ТЗ: «для начальной выставки
+        # и коррекции»). Скорость GNSS нужна только тестовому gnss_passthrough
         for source in ('master', 'rover'):
             self.create_subscription(
                 NavSatFix, INPUT_TOPICS[f'gnss_fix_{source}'],
                 lambda msg, s=source: self._on_gnss_fix(s, msg), INPUT_QOS)
-            self.create_subscription(
-                TwistStamped, INPUT_TOPICS[f'gnss_vel_{source}'],
-                lambda msg, s=source: self._on_gnss_vel(s, msg), INPUT_QOS)
+            if self._core.estimator.requires_gnss:
+                self.create_subscription(
+                    TwistStamped, INPUT_TOPICS[f'gnss_vel_{source}'],
+                    lambda msg, s=source: self._on_gnss_vel(s, msg), INPUT_QOS)
         if self._core.estimator.requires_gnss:
             self.get_logger().warn(
                 'ТЕСТОВЫЙ РЕЖИМ: оценщик берёт скорость и положение из GNSS — для сдачи запрещено!')
@@ -202,6 +217,28 @@ class TramOdometryNode(Node):
     def _declare(self, name, default, description):
         return self.declare_parameter(
             name, default, ParameterDescriptor(description=description)).value
+
+    def _declare_model_params(self) -> dict:
+        """Параметры модели backup_model: model.<имя> → поле Params пакета tram_backup_odometry.
+
+        Модели передаются только значения, отличные от её умолчаний; масштаб колёс и пути берутся
+        из калибровки. Без пакета модели параметров нет (нода работает на wheel_baseline).
+        """
+        try:
+            from tram_backup_odometry.estimator import Params
+        except ImportError:
+            return {}
+        overrides = {}
+        for name, default in vars(Params()).items():
+            if name in MODEL_CALIBRATED_PARAMS:
+                continue
+            value = self._declare(f'model.{name}', default, MODEL_PARAM_DESCRIPTION)
+            if not same_value(value, default):
+                overrides[name] = value
+        if overrides:
+            self.get_logger().info('Параметры модели: ' + ', '.join(
+                f'{name}={value}' for name, value in sorted(overrides.items())))
+        return overrides
 
     def _declare_dataclass(self, cls):
         """Объявить параметры ROS для полей dataclass (по умолчанию — его значения)."""

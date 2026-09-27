@@ -23,7 +23,7 @@
 """
 import math
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Callable, List, Optional
 
 from tram_odometry.estimators import ESTIMATORS, Estimate, create_estimator
@@ -38,7 +38,9 @@ DEFAULT_ESTIMATOR = 'backup_model'
 # Запасной оценщик: работает параллельно с основным и заменяет его при сбое
 FALLBACK_ESTIMATOR = 'wheel_baseline'
 VEHICLE_INPUTS = ('front', 'rear', 'driver_cmd')
-GNSS_INPUTS = ('gnss_fix_master', 'gnss_vel_master', 'gnss_fix_rover', 'gnss_vel_rover')
+GNSS_FIX_INPUTS = ('gnss_fix_master', 'gnss_fix_rover')
+# Скорость GNSS нужна только тестовому оценщику gnss_passthrough; основной контур её не слушает
+GNSS_VEL_INPUTS = ('gnss_vel_master', 'gnss_vel_rover')
 
 # Трамвай на рельсах не движется вбок и вертикально относительно корпуса, м²/с²
 CONSTRAINED_VARIANCE = 1e-4
@@ -75,6 +77,8 @@ class CoreParams:
     stop_min_duration: float = 3.0          # с: стоянка дольше — привязка к остановке
     wheel_wait_at_start: float = 1.0        # с: ожидание первого измерения колёс (не параметр ROS)
     backup_model_share: str = ''            # каталог данных пакета модели; '' — поиск по умолчанию
+    # параметры модели backup_model (поля Params пакета tram_backup_odometry), отличные от её умолчаний
+    backup_model_overrides: dict = field(default_factory=dict)
 
 
 @dataclass
@@ -132,7 +136,8 @@ class OdometryCore:
                                  self._load_stops())
         self._standing_since = None     # начало текущей стоянки (время bag)
         self._stop_done = False         # привязка к остановке на этой стоянке уже была
-        self.inputs = list(VEHICLE_INPUTS) + list(GNSS_INPUTS)
+        self.inputs = (list(VEHICLE_INPUTS) + list(GNSS_FIX_INPUTS)
+                       + (list(GNSS_VEL_INPUTS) if self.estimator.requires_gnss else []))
         self.arrival = {}               # вход → время (clock) последнего принятого сообщения
         self.last_output = None
         self.published = 0
@@ -194,6 +199,7 @@ class OdometryCore:
             'speed_time_offset': self.p.speed_time_offset,
             'gnss_correction': self.p.gnss_correction,
             'backup_model_share': self.p.backup_model_share,
+            'backup_model_overrides': dict(self.p.backup_model_overrides),
         }
         name = self.p.estimator
         if name not in ESTIMATORS:
