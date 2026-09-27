@@ -17,8 +17,8 @@
 | x / y / z, м | 0,944 / 0,742 / 0,137 | 8,41 / 7,84 / 2,21 |
 
 Задержка «вход → результат» p50 0,9 мс, p99 до 2,3 мс; частота 20 Гц; CPU 3,9 % одного ядра;
-память до 70 МБ. Модель напарника отдельно на том же стенде: 1,772 / 14,19 м. Подробности и
-сравнения — [docs/REPORT.md](docs/REPORT.md).
+память до 70 МБ. Модель `tram_backup_odometry` отдельно (её собственная нода) на том же стенде:
+1,772 / 14,19 м. Подробности и сравнения — [docs/REPORT.md](docs/REPORT.md).
 
 ## Состав репозитория
 
@@ -28,7 +28,7 @@ src/
 │                           публикация результата, диагностика; launch, config/params.yaml, тесты
 │   └── tram_odometry/estimators/backup_model.py — модель tram_backup_odometry внутри ноды
 │                           + коррекция по редким точкам GNSS в пути
-└── tram_backup_odometry/   модель движения (ветка algorithm): фильтр Калмана по скоростям тележек
+└── tram_backup_odometry/   модель движения: фильтр Калмана по скоростям тележек
                             с моделью привода, эхо-сеть, отбраковка проскальзываний, выставка по GNSS,
                             карта пути со стрелками и остановками; своя нода, тесты, golden-тест
 tools/
@@ -39,12 +39,12 @@ tools/
 ├── build_route_map.py      карта маршрута для запасного оценщика
 └── *.py                    построение карты пути модели, калибровка, извлечение данных (модель)
 bench/                      офлайн-стенд модели: 13 сценариев сбоев, отчёты (модель)
-docs/                       REPORT.md — отчёт; MODEL.md — модель; INTEGRATION.md — встраивание ядра;
-                            WORKLOG.md — журнал разработки модели
+docs/                       REPORT.md — отчёт; MODEL.md — модель; INTEGRATION.md — встраивание ядра
 reports/                    калибровка и проверка точности модели
 ```
 
-Ветки: `interface` — нода и инструменты, `algorithm` — модель, `main` — итог (слияние обеих).
+История разработки сохранена: нода и инструменты — ветка `interface`, модель — ветка `algorithm`;
+обе слиты в `main`, это итоговая версия.
 
 ## Как устроено
 
@@ -130,7 +130,7 @@ ros2 bag play <bag> --delay 3
 Весь стенд организаторов одной командой (сборка, нода, судья, запись, воспроизведение, ресурсы):
 
 ```bash
-tools/check_stand.sh <каталог check-code> 1.0 ~/stand_out monitor:=true
+bash tools/check_stand.sh <каталог check-code> 1.0 ~/stand_out monitor:=true
 ```
 
 ## Выходные топики
@@ -148,11 +148,13 @@ tools/check_stand.sh <каталог check-code> 1.0 ~/stand_out monitor:=true
 
 | Что | Как | Ожидаемо |
 |---|---|---|
-| Стенд организаторов | `tools/check_stand.sh <check-code> 1.0` | итог судьи (см. таблицу вверху), ресурсы ноды |
+| Стенд организаторов | `bash tools/check_stand.sh <check-code> 1.0` | итог судьи (см. таблицу вверху), ресурсы ноды |
 | То же без ROS, за секунды | `python3 tools/eval/check_offline.py [--minutes]` | те же метрики судьи по bag стенда |
 | Все bag датасета | `python3 tools/eval/offline_eval.py` | скорость и положение (эталон — пара антенн GNSS) |
+| Лог ноды | вывод `ros2 launch tram_odometry tram_odometry.launch.py` | при старте — основной и запасной оценщики, масштаб колёс, карта и остановки запасного оценщика; раз в 5 с — скорость, путь, активный оценщик, принято (и отброшено) по входам, опубликовано; предупреждения о сбоях данных |
 | Частота | `ros2 topic hz /result/velocity` | ≈ 20 Гц |
-| Задержка, CPU, память | `ros2 launch tram_odometry tram_odometry.launch.py monitor:=true` | итог `latency_monitor` при остановке |
+| Задержка, CPU, память | `ros2 launch tram_odometry tram_odometry.launch.py monitor:=true` | в логе раз в 5 с строка `latency_monitor`: частота `/result/velocity` и `/result/position`, задержка «вход → результат» p50/p95/p99/max, CPU, RSS |
+| Метрики судьи онлайн | `ros2 run hackathon_solution_checker metrics` (стенд `check-code`) | RMSE и max скорости и положения раз в 5 с |
 | Диагностика | `ros2 topic echo /diagnostics` | см. выше |
 | Устойчивость | `python3 tools/eval/make_faulty_bag.py <bag> <новый bag>` | 10 видов сбоев входных данных |
 | Тесты | `colcon test && colcon test-result --verbose` | 67 тестов (56 ноды + 11 модели, включая golden) |
