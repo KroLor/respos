@@ -6,7 +6,9 @@ from tram_odometry.projection import ProjectedPose
 
 
 def make(**kwargs):
-    # Номинальный масштаб колёс 1/3,6 — чтобы проверять логику на «круглых» числах
+    # Номинальный масштаб колёс 1/3,6 — чтобы проверять логику на «круглых» числах;
+    # логика ядра проверяется на простом оценщике wheel_baseline (модель — в test_backup_model.py)
+    kwargs.setdefault('estimator', 'wheel_baseline')
     return OdometryCore(PreprocessingParams(wheel_speed_scale=NOMINAL_WHEEL_SCALE),
                         CoreParams(**kwargs), clock=lambda: 0.0)
 

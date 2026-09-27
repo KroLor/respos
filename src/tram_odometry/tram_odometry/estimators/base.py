@@ -24,6 +24,9 @@ class Estimate:
     yaw: Optional[float] = None
     slip_detected: bool = False       # признаки проскальзывания/юза или сбоя датчика колёс
     slip_ratio: Optional[float] = None  # оценка продольного скольжения, если оценщик её даёт
+    # Дисперсии положения поперёк пути и по высоте, м², если положение дал сам оценщик
+    position_cross_var: Optional[float] = None
+    position_z_var: Optional[float] = None
 
 
 class Estimator:
@@ -32,9 +35,28 @@ class Estimator:
     name = 'base'
     # True — оценщику нужны GNSS-топики; в основном контуре это запрещено правилами
     requires_gnss = False
+    # True — оценщик получает ещё и сырые значения (on_raw_*): скорость колёс в км/ч как в топике,
+    # статус GNSS; только сообщения, чьи метки и значения прошли предобработку
+    raw_inputs = False
+    # True — положение (x, y, z) в системе координат результата даёт сам оценщик
+    provides_position = False
 
     def __init__(self, params: dict) -> None:
         self.params = params
+
+    def on_raw_wheel(self, bogie: str, stamp: float, speed_kmh: float) -> None:
+        """Сырое сообщение тележки (только при raw_inputs)."""
+
+    def on_raw_driver_cmd(self, stamp: float, position: int) -> None:
+        """Сырое сообщение контроллера (только при raw_inputs)."""
+
+    def on_raw_gnss_fix(self, source: str, stamp: float, status: int,
+                        latitude: float, longitude: float, altitude: float) -> None:
+        """Сырое сообщение GNSS (только при raw_inputs)."""
+
+    def diagnostics(self) -> dict:
+        """Дополнительные значения для /diagnostics: имя → значение."""
+        return {}
 
     def on_wheel(self, bogie: str, stamp: float, velocity: float,
                  suspicious: bool = False) -> None:

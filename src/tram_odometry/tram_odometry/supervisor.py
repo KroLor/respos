@@ -60,8 +60,22 @@ class SupervisedEstimator:
         self._broadcast('on_time_reset', stamp)
         self._last_stamp = None
 
-    def _broadcast(self, method, *args):
+    # Сырые сообщения (до предобработки) — только оценщикам, которые их просят
+
+    def on_raw_wheel(self, bogie, stamp, speed_kmh):
+        self._broadcast('on_raw_wheel', bogie, stamp, speed_kmh, raw=True)
+
+    def on_raw_driver_cmd(self, stamp, position):
+        self._broadcast('on_raw_driver_cmd', stamp, position, raw=True)
+
+    def on_raw_gnss_fix(self, source, stamp, status, latitude, longitude, altitude):
+        self._broadcast('on_raw_gnss_fix', source, stamp, status, latitude, longitude, altitude,
+                        raw=True)
+
+    def _broadcast(self, method, *args, raw=False):
         for estimator in self.estimators:
+            if raw and not estimator.raw_inputs:
+                continue
             try:
                 getattr(estimator, method)(*args)
             except Exception as error:
@@ -97,6 +111,8 @@ class SupervisedEstimator:
                   result.velocity_var, result.distance_var]
         if result.position is not None:
             values.extend(result.position)
+            values.extend(v for v in (result.yaw, result.position_cross_var, result.position_z_var)
+                          if v is not None)
         if not all(isinstance(v, numbers.Real) and math.isfinite(v) for v in values):
             return None
         if not -NEGATIVE_SPEED_TOLERANCE <= result.velocity <= self.max_speed:

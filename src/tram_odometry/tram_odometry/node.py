@@ -66,7 +66,8 @@ INPUT_WALL_TIMEOUT = 2.0
 # Параметры ROS для ядра и предобработки: имя → описание.
 # Значения по умолчанию — в CoreParams и PreprocessingParams (единственное место)
 PARAM_DESCRIPTIONS = {
-    'estimator': 'Оценщик: ' + ', '.join(ESTIMATORS) + ' (gnss_passthrough — только для тестов)',
+    'estimator': 'Оценщик: ' + ', '.join(ESTIMATORS) + ' (backup_model — модель пакета '
+                 'tram_backup_odometry, основной; gnss_passthrough — только для тестов)',
     'vehicle_id': 'Трамвай (30618 или 30639): выбирает откалиброванный по GNSS масштаб колёс',
     'wheel_speed_scale':
         'Множитель скорости колёс км/ч → м/с; 0 — откалиброванный для vehicle_id',
@@ -99,7 +100,8 @@ PARAM_DESCRIPTIONS = {
         'Карта маршрута (.csv); пусто — карта из пакета (config/route_map.csv), none — без карты',
     'reference_antenna':
         'Приёмник GNSS для начала координат и привязки к карте: master или rover',
-    'gnss_correction': 'Поправлять положение на карте по редким точкам GNSS в середине маршрута',
+    'gnss_correction': 'Поправлять положение на карте по редким точкам GNSS в середине маршрута '
+                       '(и для backup_model, и для карты wheel_baseline)',
     'gnss_correction_interval': 'Коррекция по GNSS не чаще, чем раз в столько секунд',
     'route_stops_file':
         'Остановки (.csv) для уточнения пути на стоянках; пусто — файл из пакета, none — без них',
@@ -271,7 +273,9 @@ class TramOdometryNode(Node):
         acceleration_msg.accel.linear.x = float(estimate.acceleration)
 
         self._pub_velocity.publish(velocity_msg)
-        self._pub_position.publish(odom)
+        # До выставки положение неизвестно: скорость публикуется, положение — нет
+        if output.position_valid:
+            self._pub_position.publish(odom)
         self._pub_acceleration.publish(acceleration_msg)
         self._pub_slip.publish(Bool(data=bool(estimate.slip_detected)))
         # Скольжение — только когда оценщик его дал (нужны свежие данные колёс)
@@ -327,6 +331,7 @@ class TramOdometryNode(Node):
             'основной': est.primary.name, 'активен': est.active, 'переключений': est.switches,
             **{f'сбоев: {name}': count for name, count in sorted(est.failures.items())},
             'последняя ошибка': est.last_error or '-',
+            **est.primary.diagnostics(),
         }
         if last is not None:
             values.update({
@@ -337,21 +342,10 @@ class TramOdometryNode(Node):
             })
         array.status.append(self._status('оценщик', level, message, values))
 
-        anchor = core.anchor
-        level = DiagnosticStatus.OK if anchor.on_route else DiagnosticStatus.WARN
-        values = {
-            'состояние': anchor.state, 'опорный приёмник': anchor.reference,
-            'курс': '-' if anchor.heading is None else f'{math.degrees(anchor.heading):.1f}°',
-            'курс по': anchor.heading_source,
-            'до карты при выставке, м': '-' if anchor.init_distance is None else f'{anchor.init_distance:.2f}',
-            'GNSS от места на карте при выставке, м':
-                '-' if anchor.init_offset is None else f'{anchor.init_offset:.2f}',
-            'коррекций GNSS': anchor.corrections, 'отклонено точек GNSS': anchor.rejected,
-            'привязок к остановкам': anchor.stop_updates,
-        }
-        if anchor.on_route and last is not None:
-            values['σ вдоль пути, м'] = f'{math.sqrt(anchor.along_var(last.distance)):.2f}'
-        array.status.append(self._status('выставка по GNSS', level, anchor.state, values))
+        # Выставка по GNSS и карта ноды нужны оценщикам без своего положения (wheel_baseline);
+        # у backup_model своя выставка — её состояние выше, в статусе оценщика
+        if not est.primary.provides_position:
+            array.status.append(self._anchor_status(core, last))
 
         out_rate = (core.published - prev[2]) / span if span > 0.0 else 0.0
         times = self._proc_times
@@ -370,6 +364,23 @@ class TramOdometryNode(Node):
         array.status.append(self._status('выход', level, message, values))
         self._pub_diagnostics.publish(array)
         self._diag_prev = (now, accepted, core.published)
+
+    def _anchor_status(self, core, last) -> DiagnosticStatus:
+        anchor = core.anchor
+        level = DiagnosticStatus.OK if anchor.on_route else DiagnosticStatus.WARN
+        values = {
+            'состояние': anchor.state, 'опорный приёмник': anchor.reference,
+            'курс': '-' if anchor.heading is None else f'{math.degrees(anchor.heading):.1f}°',
+            'курс по': anchor.heading_source,
+            'до карты при выставке, м': '-' if anchor.init_distance is None else f'{anchor.init_distance:.2f}',
+            'GNSS от места на карте при выставке, м':
+                '-' if anchor.init_offset is None else f'{anchor.init_offset:.2f}',
+            'коррекций GNSS': anchor.corrections, 'отклонено точек GNSS': anchor.rejected,
+            'привязок к остановкам': anchor.stop_updates,
+        }
+        if anchor.on_route and last is not None:
+            values['σ вдоль пути, м'] = f'{math.sqrt(anchor.along_var(last.distance)):.2f}'
+        return self._status('выставка по GNSS', level, anchor.state, values)
 
     @staticmethod
     def _status(name, level, message, values) -> DiagnosticStatus:

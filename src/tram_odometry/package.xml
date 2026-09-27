@@ -17,6 +17,8 @@
   <depend>sensor_msgs</depend>
   <depend>tram_vehicle_msgs</depend>
 
+  <!-- Модель движения (основной оценщик backup_model) -->
+  <exec_depend>tram_backup_odometry</exec_depend>
   <exec_depend>ament_index_python</exec_depend>
   <exec_depend>launch</exec_depend>
   <exec_depend>launch_ros</exec_depend>

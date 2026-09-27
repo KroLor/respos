@@ -2,14 +2,17 @@
 
 Примеры:
   ros2 launch tram_odometry tram_odometry.launch.py
+  ros2 launch tram_odometry tram_odometry.launch.py estimator:=wheel_baseline     # без модели
   ros2 launch tram_odometry tram_odometry.launch.py estimator:=gnss_passthrough   # тест конвейера
   ros2 launch tram_odometry tram_odometry.launch.py params_file:=/путь/к/params.yaml
+  ros2 launch tram_odometry tram_odometry.launch.py monitor:=true   # + замер задержки, CPU, RSS
 """
 import os
 
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument, OpaqueFunction
+from launch.conditions import IfCondition
 from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
 
@@ -42,9 +45,16 @@ def generate_launch_description():
             description='Файл параметров ноды'),
         DeclareLaunchArgument(
             'estimator', default_value='',
-            description='Переопределить оценщик: wheel_baseline, gnss_passthrough (тест)'),
+            description='Переопределить оценщик: backup_model (основной), wheel_baseline, '
+                        'gnss_passthrough (тест)'),
         DeclareLaunchArgument(
             'use_sim_time', default_value='false',
             description='Брать время из /clock (ros2 bag play --clock)'),
+        DeclareLaunchArgument(
+            'monitor', default_value='false',
+            description='Запустить замер задержки «вход → результат», частоты, CPU и RSS ноды '
+                        '(latency_monitor пакета tram_backup_odometry)'),
         OpaqueFunction(function=_create_node),
+        Node(package='tram_backup_odometry', executable='latency_monitor', name='latency_monitor',
+             output='screen', condition=IfCondition(LaunchConfiguration('monitor'))),
     ])
