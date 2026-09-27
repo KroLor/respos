@@ -22,10 +22,27 @@
 
 ## Состав репозитория
 
-![Состав репозитория: пакеты src, инструменты tools, стенд модели bench, документы docs, отчёты reports](docs/images/repo_structure.png)
-
-История разработки сохранена: нода и инструменты — ветка [`interface`](https://github.com/KroLor/tram-backup-odometry/tree/interface),
-модель — ветка [`algorithm`](https://github.com/KroLor/tram-backup-odometry/tree/algorithm); обе слиты в `main`, это итоговая версия.
+```
+src/
+├── tram_odometry/          нода для жюри: входы → предобработка → оценщики под надзором →
+│                           публикация результата, диагностика; launch, config/params.yaml, тесты
+│   └── tram_odometry/estimators/backup_model.py — модель tram_backup_odometry внутри ноды
+│                           + коррекция по редким точкам GNSS в пути
+└── tram_backup_odometry/   модель движения: фильтр Калмана по скоростям тележек
+                            с моделью привода, эхо-сеть, отбраковка проскальзываний, выставка по GNSS,
+                            карта пути со стрелками и остановками; своя нода, тесты, golden-тест
+tools/
+├── check_stand.sh          стенд организаторов с нашим решением «как у жюри» (ROS 2)
+├── eval/                   инструменты оценки без ROS: копия стенда (check_offline.py), оценка по
+│                           всем bag датасета (offline_eval.py), окна сбоев (fault_eval.py),
+│                           внесение сбоев (make_faulty_bag.py), осмотр bag (peek_bag.py)
+├── build_route_map.py      карта маршрута для запасного оценщика
+└── *.py                    построение карты пути модели, калибровка, извлечение данных (модель)
+bench/                      офлайн-стенд модели: 13 сценариев сбоев, отчёты (модель)
+docs/                       REPORT.md — отчёт; MODEL.md — модель; INTEGRATION.md — встраивание ядра;
+                            images/ — схемы (PNG) и их исходники draw.io
+reports/                    калибровка и проверка точности модели
+```
 
 ## Как устроено
 
