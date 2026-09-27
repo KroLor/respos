@@ -163,9 +163,9 @@ class TheirNode(Node):
 | 1 | Ядро: физика, отбраковка, выставка, MGRS, робастность выбора ветки | `cd src/tram_backup_odometry && python -m pytest -q test` | `11 passed` (~4 с) |
 | 1a | **Golden**: 50 848 входов bag стенда → те же выходы (скорость ±1e-6 м/с, положение ±1e-4 м, те же stamp и режимы), подхвачены все данные, 2 переустановки ветки, 15 коррекций по остановкам | входит в п. 1 (`test_golden.py`) | 3 теста зелёные |
 | 2 | Сборка и тесты в их workspace | `colcon build --packages-select tram_backup_odometry && colcon test --packages-select tram_backup_odometry && colcon test-result --verbose` | `0 errors, 0 failures` |
-| 3 | Обёртка ROS = ядро: официальный стенд организаторов в их окружении | `check-code`: наша нода + `ros2 run hackathon_solution_checker metrics` + `ros2 bag play bags/30618_88aea4d9` (у нас — `tools/wsl/check.sh 1.0`) | таблица ниже |
-| 4 | То же офлайн (без ROS, ~20 с) | `cd bench && python check_offline.py` | 3D RMSE 1.77 м, max 14.24 м |
-| 5 | Регрессия по всем прогонам и сценариям сбоев (нужен датасет `extracted/`) | `python bench/run_bench.py --tag after_merge --split all -j 14`, сравнить `reports/bench/after_merge/per_run.csv` с `reports/bench/geo3_all/per_run.csv` | совпадение по всем 1261 строкам (ядро то же) |
+| 3 | Обёртка ROS = ядро: официальный стенд организаторов в их окружении | `check-code`: наша нода + `ros2 run hackathon_solution_checker metrics` + `ros2 bag play bags/30618_88aea4d9` (в этом репозитории — `bash tools/check_stand.sh <check-code> 1.0`, нода `tram_odometry` с этим ядром) | таблица ниже |
+| 4 | То же офлайн (без ROS, ~20 с) | `cd bench && python check_offline.py` (нужны `extracted_check/` и эталон `check-code/_ref.parquet`) или без подготовки данных — `python3 tools/eval/check_offline.py --no-gnss-correction` | 3D RMSE 1.77 м, max 14.24 м (второй вариант: 1.80 / 14.18 м) |
+| 5 | Регрессия по всем прогонам и сценариям сбоев (нужен датасет `extracted/`) | `python bench/run_bench.py --tag <имя> --split all -j 14` на прежней и новой версии, сравнить `reports/bench/<имя>/per_run.csv` двух запусков | совпадение по всем строкам (ядро то же) |
 
 Эталон официального стенда (`hackathon_solution_checker`, bag 30618_88aea4d9, 1309 с, 5.5 км; ROS 2 Humble,
 воспроизведение ×1, 27.09.2026):
@@ -190,7 +190,7 @@ class TheirNode(Node):
 | `test_golden_outputs_same`: скорость расходится на ~1e-3 и больше | изменён код ядра или данные (`model.json`, `esn.json`), либо сильно другая версия numpy |
 | `test_golden_outputs_same`: положение расходится, скорость — нет | другая карта или профили стрелок |
 | п. 3: RMSE скорости ≫ 0.05 | скорость колёс пересчитана в м/с до ядра, либо вызовы из нескольких потоков |
-| п. 3: положение не публикуется | нет GNSS в первые секунды (регламент) или закрыты GNSS-подписки до выставки |
+| п. 3: положение не публикуется | нет GNSS в первые секунды (по ТЗ) или закрыты GNSS-подписки до выставки |
 | п. 3: судья не сопоставляет выходы | `header.stamp` выхода не равен stamp входа (перештамповка в рантайме) |
 | п. 3: ошибка растёт к концу, скорость в норме | потеряны `branch_profiles.json` / карта (уход на стрелке у депо) |
 
@@ -201,6 +201,6 @@ Golden фиксирует поведение текущей версии. При
 1. Прогнать п. 4 и п. 5 и убедиться, что стало не хуже.
 2. Пересоздать golden: `python tools/make_golden.py`. Нужен выгруженный bag стенда в `extracted_check/`:
    `tools/extract_bags.py --data check-code/bags --out extracted_check`.
-3. Обновить ожидаемые числа в этом документе и записать изменение в `WORKLOG.md`.
+3. Обновить ожидаемые числа в этом документе.
 
 Если меняется только обёртка или окружение, golden пересоздавать нельзя: он и есть проверка, что ядро то же.

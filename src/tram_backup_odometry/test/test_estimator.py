@@ -119,8 +119,8 @@ def test_map_init_from_gnss():
     assert 90000 < o.e < 110000 and 80000 < o.n < 90000        # плоские координаты судьи
 
 
-def test_mgrs_matches_organizers_example():
-    """Пример из чата организаторов: MGRS 37UCB, x непрерывен через границу квадратов (103501 ≠ DB 3501)."""
+def test_mgrs_matches_reference_point():
+    """Контрольная точка: MGRS 37UCB, x непрерывен через границу квадратов (103501 ≠ DB 3501)."""
     x, y, _ = MgrsFrame().to_enu(55.8088325462547, 37.4602768500852, 0.0)
     assert float(x) == pytest.approx(103501.6309, abs=1e-3)
     assert float(y) == pytest.approx(85876.1201, abs=1e-3)

@@ -1,4 +1,4 @@
-"""Проверка осуществимости физмодели (запускалось из корня проекта). Восстановлено из сессии."""
+"""Проверка осуществимости физмодели (запуск из корня проекта)."""
 import pandas as pd, numpy as np, hashlib, json
 from pathlib import Path
 from scipy.ndimage import gaussian_filter1d
