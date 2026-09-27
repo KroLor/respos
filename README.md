@@ -173,9 +173,6 @@ bash tools/check_stand.sh <каталог check-code> 1.0 ~/stand_out monitor:=t
 
 ## Изменения файлов организаторов
 
-Изменены сами оригиналы (копий в репозитории нет); после правок пакет `tram_vehicle_msgs`
-датасета и стенда совпадают побайтно:
-
 1. `Резервное позиционирование/tram_vehicle_msgs/package.xml` (датасет) — добавлен тег
    `<maintainer email="maintainer@example.com">Hackathon maintainers</maintainer>`, тот же, что
    у организаторов в `check-code`. Без него `colcon build` в Humble завершается ошибкой
@@ -185,4 +182,4 @@ bash tools/check_stand.sh <каталог check-code> 1.0 ~/stand_out monitor:=t
    стенда нет типа сообщения, а значит и топика `/vehicle/driver_position_cmd`; тип взят из пакета
    датасета, где он есть.
 
-Расхождение README датасета с данными (не правка файлов): скорость колёс — в км/ч, а не в м/с.
+Расхождение README датасета с данными: скорость колёс — в км/ч, а не в м/с.
