@@ -1,0 +1,31 @@
+# Параметры ноды резервной одометрии. Всё, что не указано, берётся из Params (estimator.py)
+# и из откалиброванной модели config/model.json (масштаб колёс, характеристика привода).
+tram_backup_odometry:
+  ros__parameters:
+    frame_id: map                  # СК положения: плоские MGRS 37U CB (x = UTM37N E − 300000, y = N − 6100000), z — эллипс. высота рельса
+    child_frame_id: base_link
+    use_gnss_init: true            # начальная выставка по GNSS первых секунд; затем GNSS-подписки закрываются
+    fallback_rate_hz: 20.0         # публикация экстраполяции, если входы пропали (до 2 с)
+    estimator:
+      use_esn: true                # эхо-сеть в модели динамики (config/esn.json): поправка, когда колёсам не верим
+      filter: kf                   # kf — фильтр Калмана с отбраковкой (основной); imm — IMM из 3 UKF (опция)
+      bias_limit: 0.0              # смещение модели в фильтре (отключено: роль адаптации выполняет ESN)
+      use_map: true                # положение по карте пути (pathgraph); false — прямолинейное счисление
+      origin: mgrs                 # mgrs — координаты судьи; first_fix — ENU от первого фикса; fixed — ENU от origin_lat/lon/alt
+      utm_zone: 37
+      mgrs_east0: 300000.0
+      mgrs_north0: 6100000.0
+      master_x: -9.873             # tf антенн в base_link (ось первой тележки на уровне рельса)
+      rover_x: 2.563
+      antenna_z: 3.0
+      origin_lat: 55.804767
+      origin_lon: 37.419565
+      origin_alt: 150.0
+      init_window: 2.0             # с сбора фиксов для выставки
+      init_timeout: 15.0           # с без GNSS → относительная одометрия от стартовой точки
+      gate_sigma: 3.0              # гейт отбраковки показаний колёс, σ
+      gate_min: 0.35               # м/с
+      slip_accel_margin: 0.5       # м/с² выхода ускорения колеса за физическую огибающую
+      reaccept_s: 3.0
+      stop_correction: true        # коррекция вдоль пути по местам остановок из карты
+      scale_adapt: true            # адаптация масштаба колёс по коррекциям
