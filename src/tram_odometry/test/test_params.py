@@ -6,6 +6,7 @@
 import math
 from pathlib import Path
 
+import pytest
 import yaml
 
 from tram_odometry.core import CoreParams
@@ -30,3 +31,16 @@ def test_params_yaml_matches_code_defaults():
                 assert value == default, f'{name}: {value} != {default}'
             checked += 1
     assert checked >= 15
+
+
+def test_model_section_holds_model_defaults():
+    """Раздел model: в params.yaml показывает умолчания модели и сам ничего не меняет."""
+    estimator = pytest.importorskip('tram_backup_odometry.estimator')
+    data = yaml.safe_load(PARAMS_FILE.read_text(encoding='utf-8'))
+    model = data['tram_odometry']['ros__parameters']['model']
+    defaults = vars(estimator.Params())
+    for name, value in model.items():
+        assert name in defaults, f'model.{name}: нет такого параметра модели'
+        assert type(value) is type(defaults[name]), f'model.{name}: тип {type(value)}'
+        assert value == defaults[name], f'model.{name}: {value} != {defaults[name]}'
+    assert len(model) >= 15

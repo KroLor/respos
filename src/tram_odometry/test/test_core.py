@@ -100,3 +100,9 @@ def test_pose_covariance_rotates_along_and_cross_track():
     assert cov[1] == cov[6]                   # симметрия
     assert abs(cov[0] - 2.5) < 1e-9 and abs(cov[1] + 1.5) < 1e-9
     assert cov[0] * cov[7] - cov[1] ** 2 >= -1e-9   # положительно полуопределена
+
+
+def test_gnss_velocity_is_an_input_only_for_the_test_estimator():
+    assert 'gnss_vel_master' not in make().inputs
+    assert 'gnss_fix_master' in make().inputs
+    assert 'gnss_vel_master' in make(estimator='gnss_passthrough').inputs

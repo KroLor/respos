@@ -6,6 +6,7 @@
   ros2 launch tram_odometry tram_odometry.launch.py estimator:=gnss_passthrough   # тест конвейера
   ros2 launch tram_odometry tram_odometry.launch.py params_file:=/путь/к/params.yaml
   ros2 launch tram_odometry tram_odometry.launch.py monitor:=true   # + замер задержки, CPU, RSS
+  ros2 launch tram_odometry tram_odometry.launch.py gnss_correction:=false   # GNSS только для выставки
 """
 import os
 
@@ -26,6 +27,10 @@ def _create_node(context):
     estimator = LaunchConfiguration('estimator').perform(context)
     if estimator:
         overrides['estimator'] = estimator
+    # Пустой аргумент gnss_correction — значение из файла параметров
+    gnss_correction = LaunchConfiguration('gnss_correction').perform(context)
+    if gnss_correction:
+        overrides['gnss_correction'] = gnss_correction.lower() in ('true', '1')
     return [Node(
         package='tram_odometry',
         executable='tram_odometry_node',
@@ -47,6 +52,10 @@ def generate_launch_description():
             'estimator', default_value='',
             description='Переопределить оценщик: backup_model (основной), wheel_baseline, '
                         'gnss_passthrough (тест)'),
+        DeclareLaunchArgument(
+            'gnss_correction', default_value='',
+            description='Коррекция положения по редким точкам GNSS в пути: true / false '
+                        '(false — GNSS только для начальной выставки); пусто — из файла параметров'),
         DeclareLaunchArgument(
             'use_sim_time', default_value='false',
             description='Брать время из /clock (ros2 bag play --clock)'),
