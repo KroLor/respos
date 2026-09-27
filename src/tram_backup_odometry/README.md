@@ -30,7 +30,7 @@ colcon test --packages-select tram_backup_odometry && colcon test-result --verbo
 
 > ⚠️ Исходный `tram_vehicle_msgs/package.xml` из датасета **не собирается** на стоковом Humble: в нём нет
 > обязательного тега `<maintainer>`, и catkin_pkg выдаёт `InvalidPackage`. У организаторов в стенде `check-code`
-> этот тег уже есть; в датасете его нужно добавить (определения сообщений не меняются).
+> этот тег уже есть.
 
 ## 2. Запуск на rosbag
 
