@@ -91,7 +91,8 @@ def export_tree():
 
 def model_archive():
     """tar пакета tram_backup_odometry из ветки algorithm, если его нет в рабочей копии."""
-    if (REPO / 'src' / 'tram_backup_odometry').exists():
+    # По package.xml, а не по каталогу: после смены ветки от пакета могут остаться игнорируемые __pycache__
+    if (REPO / 'src' / 'tram_backup_odometry' / 'package.xml').exists():
         return b''
     return subprocess.run(['git', '-C', str(REPO), 'archive', 'algorithm', 'src/tram_backup_odometry'],
                           capture_output=True, check=True).stdout

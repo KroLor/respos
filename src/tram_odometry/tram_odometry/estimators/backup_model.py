@@ -1,4 +1,4 @@
-"""Оценщик backup_model: модель движения из пакета tram_backup_odometry (ветка algorithm).
+"""Оценщик backup_model: модель движения из пакета tram_backup_odometry.
 
 Расчётное ядро пакета (фильтр Калмана по скоростям тележек с моделью привода, эхо-сеть,
 отбраковка проскальзываний, выставка по GNSS, карта пути со стрелками и остановками)
@@ -54,7 +54,7 @@ class BackupModelEstimator(Estimator):
 
     def __init__(self, params: dict) -> None:
         super().__init__(params)
-        # Пакет модели — отдельная ветка/пакет; без него оценщик не создаётся и ядро
+        # Пакет модели — отдельный пакет; без него оценщик не создаётся и ядро
         # ноды переходит на запасной wheel_baseline
         from tram_backup_odometry.core import build_estimator, default_files
         self._core = build_estimator(**default_files(params.get('backup_model_share')
